@@ -562,7 +562,64 @@
 // ======================================================================
 const SUPABASE_URL = "https://sxivkbppdhzpelzfppud.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4aXZrYnBwZGh6cGVsemZwcHVkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgyNjU2MjgsImV4cCI6MjEwMzg0MTYyOH0.pAjuHOH2o1RHkGMaIUWSr1OnjiN7BXeZkkDSWLljC7U";
+
+// DADOS DO PIX DOS NOIVOS
+const PIX_KEY = "gutenberg23@gmail.com";
+const PIX_RECEIVER_NAME = "Iasmin e Gutenberg";
+const PIX_RECEIVER_CITY = "Rio de Janeiro";
 // ======================================================================
+
+// Gerador oficial do código EMV BR Code (Pix Copia e Cola)
+function generatePixPayload({ key, name, city, amount, txid = "***" }) {
+  const cleanName = (name || PIX_RECEIVER_NAME)
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "").slice(0, 25);
+  const cleanCity = (city || PIX_RECEIVER_CITY)
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "").slice(0, 15);
+  const cleanKey = key || PIX_KEY;
+  const cleanTxid = (txid || "***").replace(/[^a-zA-Z0-9]/g, "").slice(0, 25) || "***";
+
+  const formatField = (id, value) => {
+    const len = String(value.length).padStart(2, "0");
+    return `${id}${len}${value}`;
+  };
+
+  const merchantAccountInfo =
+    formatField("00", "br.gov.bcb.pix") +
+    formatField("01", cleanKey);
+
+  let payload =
+    formatField("00", "01") +
+    formatField("26", merchantAccountInfo) +
+    formatField("52", "0000") +
+    formatField("53", "986");
+
+  if (amount && amount > 0) {
+    const formattedAmount = Number(amount).toFixed(2);
+    payload += formatField("54", formattedAmount);
+  }
+
+  payload +=
+    formatField("58", "BR") +
+    formatField("59", cleanName) +
+    formatField("60", cleanCity) +
+    formatField("62", formatField("05", cleanTxid)) +
+    "6304";
+
+  // CRC16-CCITT (0x1021)
+  let crc = 0xffff;
+  for (let i = 0; i < payload.length; i++) {
+    crc ^= payload.charCodeAt(i) << 8;
+    for (let j = 0; j < 8; j++) {
+      if ((crc & 0x8000) !== 0) {
+        crc = ((crc << 1) ^ 0x1021) & 0xffff;
+      } else {
+        crc = (crc << 1) & 0xffff;
+      }
+    }
+  }
+  const crcHex = crc.toString(16).toUpperCase().padStart(4, "0");
+  return payload + crcHex;
+}
 
 const isRealSupabase = SUPABASE_URL && !SUPABASE_URL.includes("SEU-PROJETO") && SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.includes("SUA_CHAVE");
 
@@ -979,61 +1036,75 @@ async function handleProcessPayment(method){
   btnActive.textContent = 'Processando...';
 
   try{
-    const payload = JSON.stringify({
-      gift_id: currentGift.id,
-      buyer_name: buyerName,
-      amount_cents: finalAmountCents,
-      payment_method: method,
-      buyer_message: buyerMessage || null,
-    });
+    const orderId = `order_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
-    let res;
-    let data;
-    try {
-      res = await fetch(`${FUNCTIONS_URL}/create-payment`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        body: payload,
+    if (method === 'pix_direct'){
+      const pixCode = generatePixPayload({
+        key: PIX_KEY,
+        name: PIX_RECEIVER_NAME,
+        city: PIX_RECEIVER_CITY,
+        amount: finalAmountCents / 100,
+        txid: orderId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 20)
       });
-      if (res.ok) {
-        data = await res.json();
-      }
-    } catch(err) {
-      // try fallback below
-    }
+      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=10&data=${encodeURIComponent(pixCode)}`;
 
-    if (!data) {
-      const fallbackRes = await fetch('/api/create-payment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: payload,
-      });
-      data = await fallbackRes.json().catch(() => ({}));
-      if (!fallbackRes.ok) {
-        throw new Error(data.error || 'Não foi possível processar o pagamento no momento.');
-      }
-    }
+      currentPendingOrderId = orderId;
+      document.getElementById('pixQrImg').src = qrCodeUrl;
+      document.getElementById('pixCodeInput').value = pixCode;
+      document.getElementById('pixDetailAmount').textContent = formatBRL(finalAmountCents);
+      document.getElementById('pixDetailReceiver').textContent = PIX_RECEIVER_NAME;
+      document.getElementById('pixDetailKey').textContent = PIX_KEY;
 
-    if (method === 'pix_direct' && data.pix_code){
-      currentPendingOrderId = data.order_id;
-      document.getElementById('pixQrImg').src = data.qr_code_url;
-      document.getElementById('pixCodeInput').value = data.pix_code;
-      document.getElementById('pixDetailAmount').textContent = formatBRL(data.amount_cents);
-      document.getElementById('pixDetailReceiver').textContent = data.receiver_name;
-      document.getElementById('pixDetailKey').textContent = data.pix_key;
+      const newOrder = {
+        id: orderId,
+        gift_id: currentGift.id,
+        buyer_name: buyerName,
+        buyer_message: buyerMessage || null,
+        amount_cents: finalAmountCents,
+        payment_method: 'pix_direct',
+        status: 'pending',
+        created_at: new Date().toISOString()
+      };
+
+      if (realSupabase) {
+        realSupabase.from('gift_orders').insert([newOrder]).then(() => {}).catch(() => {});
+      }
+      const orders = getStoredOrders();
+      orders.unshift(newOrder);
+      saveStoredOrders(orders);
 
       document.getElementById('checkoutStepForm').style.display = 'none';
       document.getElementById('checkoutStepPix').style.display = 'block';
-    } else if (data.init_point){
-      // Redirect to external checkout (Stripe / Simulation)
-      window.location.href = data.init_point;
+      return;
+    }
+
+    if (method === 'card'){
+      // Tentar backend de pagamento se disponível
+      let data = null;
+      try {
+        const fallbackRes = await fetch('/api/create-payment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            gift_id: currentGift.id,
+            buyer_name: buyerName,
+            amount_cents: finalAmountCents,
+            payment_method: 'card',
+            buyer_message: buyerMessage || null,
+          }),
+        });
+        if (fallbackRes.ok) data = await fallbackRes.json();
+      } catch(e){}
+
+      if (data && data.init_point){
+        window.location.href = data.init_point;
+        return;
+      }
+
+      errEl.textContent = 'O pagamento via cartão está temporariamente indisponível. Por favor, utilize a opção Pix direto.';
     }
   } catch(e){
-    errEl.textContent = e.message || 'Erro ao comunicar com o servidor. Tente novamente.';
+    errEl.textContent = e.message || 'Erro ao gerar o pagamento. Tente novamente.';
   } finally {
     btnActive.disabled = false;
     btnActive.textContent = method === 'pix_direct' ? 'Gerar Pix para pagamento' : 'Continuar com Cartão';
@@ -1072,29 +1143,31 @@ document.getElementById('btnConfirmPixPaid').addEventListener('click', async () 
 
   try{
     if (currentPendingOrderId){
-      const confirmPayload = JSON.stringify({ order_id: currentPendingOrderId });
-      try {
-        await fetch(`${FUNCTIONS_URL}/confirm-pix-order`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            apikey: SUPABASE_ANON_KEY,
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          },
-          body: confirmPayload,
-        });
-      } catch(e) {
-        await fetch('/api/confirm-pix-order', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: confirmPayload,
-        }).catch(() => {});
+      if (realSupabase) {
+        try {
+          await realSupabase.from('gift_orders').update({ status: 'approved' }).eq('id', currentPendingOrderId);
+        } catch(e){}
       }
+      const orders = getStoredOrders();
+      const idx = orders.findIndex(o => o.id === currentPendingOrderId);
+      if (idx !== -1) {
+        orders[idx].status = 'approved';
+      } else {
+        orders.unshift({
+          id: currentPendingOrderId,
+          gift_id: currentGift ? currentGift.id : null,
+          status: 'approved',
+          buyer_name: document.getElementById('checkoutBuyerName').value.trim() || 'Convidado',
+          amount_cents: currentGift ? currentGift.price_cents : 0,
+          created_at: new Date().toISOString()
+        });
+      }
+      saveStoredOrders(orders);
     }
 
     document.getElementById('checkoutStepPix').style.display = 'none';
     document.getElementById('checkoutStepSuccess').style.display = 'block';
-    loadGifts();
+    await loadGifts();
   } catch(e){
     document.getElementById('checkoutStepPix').style.display = 'none';
     document.getElementById('checkoutStepSuccess').style.display = 'block';
