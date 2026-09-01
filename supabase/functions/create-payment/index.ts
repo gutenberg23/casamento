@@ -78,18 +78,33 @@ Deno.serve(async (req) => {
     const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
 
     // 1. Stripe Checkout
-    if (selectedMethod === "card" && stripeKey) {
+    if (selectedMethod === "card" || selectedMethod === "stripe") {
+      if (!stripeKey) {
+        return json({
+          error: "A chave STRIPE_SECRET_KEY não está configurada no Supabase Edge Functions / Secrets.",
+          stripe_missing: true
+        }, 400);
+      }
+
       const stripeParams = new URLSearchParams();
       stripeParams.append("payment_method_types[]", "card");
-      stripeParams.append("payment_method_types[]", "boleto");
       stripeParams.append("line_items[0][price_data][currency]", "brl");
-      stripeParams.append("line_items[0][price_data][product_data][name]", `Presente: ${gift.name} — Iasmin & Gutenberg`);
+      stripeParams.append("line_items[0][price_data][product_data][name]", `Presente: ${gift.name} — Casamento Iasmin & Gutenberg`);
+      if (gift.description) {
+        stripeParams.append("line_items[0][price_data][product_data][description]", gift.description.slice(0, 200));
+      }
       stripeParams.append("line_items[0][price_data][unit_amount]", String(finalAmount));
       stripeParams.append("line_items[0][quantity]", "1");
       stripeParams.append("mode", "payment");
       stripeParams.append("client_reference_id", order.id);
-      stripeParams.append("success_url", `${siteUrl}?pagamento=sucesso&presente=${gift_id}`);
-      stripeParams.append("cancel_url", `${siteUrl}?pagamento=falhou&presente=${gift_id}`);
+      stripeParams.append("metadata[gift_id]", gift_id);
+      stripeParams.append("metadata[buyer_name]", buyer_name);
+      stripeParams.append("metadata[order_id]", order.id);
+      if (buyer_message) {
+        stripeParams.append("metadata[buyer_message]", buyer_message.slice(0, 400));
+      }
+      stripeParams.append("success_url", `${siteUrl}?pagamento=sucesso&presente=${gift_id}&order_id=${order.id}&session_id={CHECKOUT_SESSION_ID}`);
+      stripeParams.append("cancel_url", `${siteUrl}?pagamento=cancelado&presente=${gift_id}`);
 
       const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
         method: "POST",
@@ -102,12 +117,13 @@ Deno.serve(async (req) => {
 
       const stripeData = await stripeRes.json();
       if (!stripeRes.ok) {
-        return json({ error: "Erro ao criar checkout no Stripe.", detail: stripeData }, 502);
+        const msg = stripeData.error?.message || "Erro ao criar checkout no Stripe.";
+        return json({ error: msg, detail: stripeData }, 502);
       }
 
       await supabase
         .from("gift_orders")
-        .update({ stripe_session_id: stripeData.id })
+        .update({ stripe_session_id: stripeData.id, payment_method: 'stripe' })
         .eq("id", order.id);
 
       return json({ provider: "stripe", init_point: stripeData.url, order_id: order.id });

@@ -463,7 +463,7 @@
         <button type="button" class="method-btn" id="btnMethodCard" data-method="card">
           <span class="icon">💳</span>
           <span class="title">Cartão de Crédito</span>
-          <span class="sub">Em até 12x parcelado</span>
+          <span class="sub">Via Stripe Seguro</span>
         </button>
       </div>
 
@@ -472,8 +472,13 @@
       </div>
 
       <div id="checkoutActionCard" style="display:none;">
-        <p style="font-size:13px; color:var(--ink-soft); margin-top:0; margin-bottom:12px;">Pagamento com Cartão de Crédito e parcelamento em até 12x com ambiente seguro e protegido.</p>
-        <button class="btn" id="btnPayCard" style="width:100%;">Continuar com Cartão</button>
+        <div style="background:var(--cream-deep); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:14px; font-size:13px; color:var(--ink-soft); line-height:1.5;">
+          <div style="display:flex; align-items:center; gap:6px; font-weight:600; color:var(--ink); margin-bottom:4px;">
+            <span>🔒 Checkout Seguro Stripe</span>
+          </div>
+          Você será redirecionado para a página oficial e protegida do <b>Stripe</b> para concluir o pagamento no cartão de crédito (Visa, Mastercard, Elo, Hipercard, Amex, Apple Pay, Google Pay).
+        </div>
+        <button class="btn" id="btnPayCard" style="width:100%;">Pagar com Cartão via Stripe</button>
       </div>
 
       <div class="form-msg err" id="checkoutErr" style="margin-top:12px;"></div>
@@ -1045,8 +1050,99 @@ async function handleProcessPayment(method){
   const buyerMessage = document.getElementById('checkoutBuyerMsg').value.trim();
   const btnActive = method === 'pix_direct' ? document.getElementById('btnGeneratePix') : document.getElementById('btnPayCard');
   btnActive.disabled = true;
-  btnActive.textContent = 'Gerando...';
 
+  if (method === 'card') {
+    btnActive.textContent = 'Conectando ao Stripe...';
+    try {
+      let stripeData = null;
+      let stripeError = null;
+
+      // 1. Tenta API do servidor local
+      try {
+        const res = await fetch('/api/create-payment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            gift_id: currentGift.id,
+            buyer_name: buyerName,
+            amount_cents: finalAmountCents,
+            payment_method: 'card',
+            buyer_message: buyerMessage || null
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.init_point) {
+          stripeData = data;
+        } else if (data.error) {
+          stripeError = data.error;
+        }
+      } catch(e){}
+
+      // 2. Tenta Edge Function do Supabase se o servidor local não responder
+      if (!stripeData && SUPABASE_URL) {
+        try {
+          const res = await fetch(`${SUPABASE_URL}/functions/v1/create-payment`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': SUPABASE_ANON_KEY,
+              'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+            },
+            body: JSON.stringify({
+              gift_id: currentGift.id,
+              buyer_name: buyerName,
+              amount_cents: finalAmountCents,
+              payment_method: 'card',
+              buyer_message: buyerMessage || null
+            })
+          });
+          const data = await res.json();
+          if (res.ok && data.init_point) {
+            stripeData = data;
+          } else if (data.error) {
+            stripeError = data.error;
+          }
+        } catch(e){}
+      }
+
+      if (stripeData && stripeData.init_point) {
+        // Registra pedido prévio
+        const pendingOrder = {
+          gift_id: currentGift.id,
+          buyer_name: buyerName,
+          amount_cents: finalAmountCents,
+          payment_method: 'stripe',
+          buyer_message: buyerMessage || null,
+          status: 'pending'
+        };
+        if (realSupabase) {
+          try { await realSupabase.from('gift_orders').insert([pendingOrder]); } catch(e){}
+        }
+        const orders = getStoredOrders();
+        orders.unshift({
+          id: stripeData.order_id || `order_${Date.now()}`,
+          created_at: new Date().toISOString(),
+          ...pendingOrder
+        });
+        saveStoredOrders(orders);
+
+        // Redireciona para o checkout seguro do Stripe
+        window.location.href = stripeData.init_point;
+        return;
+      }
+
+      errEl.textContent = stripeError || 'Não foi possível iniciar o checkout do Stripe. Configure a variável STRIPE_SECRET_KEY no ambiente.';
+    } catch(e){
+      errEl.textContent = e.message || 'Erro ao conectar ao Stripe.';
+    } finally {
+      btnActive.disabled = false;
+      btnActive.textContent = 'Pagar com Cartão via Stripe';
+    }
+    return;
+  }
+
+  // Pix Direto
+  btnActive.textContent = 'Gerando Pix...';
   try{
     const txid = `IG${Date.now().toString().slice(-8)}`;
     const pixCode = generatePixPayload({
@@ -1065,16 +1161,10 @@ async function handleProcessPayment(method){
     document.getElementById('pixDetailReceiver').textContent = PIX_RECEIVER_NAME;
     document.getElementById('pixDetailKey').textContent = PIX_KEY;
 
-    // Se for cartão, adiciona instrução de parcelamento via Pix no banco
     const pixStepTitle = document.querySelector('#checkoutStepPix h3');
     const pixStepSub = document.querySelector('#checkoutStepPix p');
-    if (method === 'card') {
-      pixStepTitle.textContent = 'Pagamento com Cartão (via Pix Parcelado)';
-      pixStepSub.textContent = 'Você pode parcelar este valor em até 12x no cartão de crédito diretamente no app do seu banco (como Nubank, PicPay, Mercado Pago, etc.) usando o código abaixo:';
-    } else {
-      pixStepTitle.textContent = 'Pague com Pix';
-      pixStepSub.textContent = 'Abra o app do seu banco, escaneie o QR Code ou copie o código Pix abaixo:';
-    }
+    pixStepTitle.textContent = 'Pague com Pix';
+    pixStepSub.textContent = 'Abra o app do seu banco, escaneie o QR Code ou copie o código Pix abaixo:';
 
     document.getElementById('checkoutStepForm').style.display = 'none';
     document.getElementById('checkoutStepPix').style.display = 'block';
@@ -1082,7 +1172,7 @@ async function handleProcessPayment(method){
     errEl.textContent = e.message || 'Erro ao gerar o código. Tente novamente.';
   } finally {
     btnActive.disabled = false;
-    btnActive.textContent = method === 'pix_direct' ? 'Gerar Pix para pagamento' : 'Continuar com Cartão';
+    btnActive.textContent = 'Gerar Pix para pagamento';
   }
 }
 
@@ -1608,6 +1698,64 @@ supabase
   .on('postgres_changes', { event: '*', schema: 'public', table: 'gifts' }, () => loadGifts())
   .subscribe();
 
+/* ---------------- Stripe Checkout Return Handler ---------------- */
+function checkPaymentReturnParams() {
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const pagStatus = urlParams.get('pagamento');
+    const presenteId = urlParams.get('presente');
+    const orderId = urlParams.get('order_id');
+
+    if (pagStatus === 'sucesso') {
+      // Abre modal de sucesso
+      document.getElementById('checkoutStepForm').style.display = 'none';
+      document.getElementById('checkoutStepPix').style.display = 'none';
+      document.getElementById('checkoutStepSuccess').style.display = 'block';
+      document.getElementById('checkoutSuccessMsg').textContent = 'Seu pagamento com cartão foi processado e confirmado pelo Stripe com sucesso! Muito obrigado pelo carinho com o nosso casamento!';
+      document.getElementById('checkoutBackdrop').classList.add('open');
+
+      // Atualiza status local
+      const orders = getStoredOrders();
+      let found = false;
+      for (const o of orders) {
+        if ((orderId && o.id === orderId) || (presenteId && o.gift_id === presenteId)) {
+          o.status = 'approved';
+          o.payment_method = 'stripe';
+          found = true;
+          break;
+        }
+      }
+      if (!found && presenteId) {
+        orders.unshift({
+          id: orderId || `order_${Date.now()}`,
+          gift_id: presenteId,
+          buyer_name: 'Convidado',
+          status: 'approved',
+          payment_method: 'stripe',
+          amount_cents: 0,
+          created_at: new Date().toISOString()
+        });
+      }
+      saveStoredOrders(orders);
+
+      // Atualiza no Supabase se disponível
+      if (realSupabase) {
+        if (orderId) {
+          realSupabase.from('gift_orders').update({ status: 'approved', payment_method: 'stripe' }).eq('id', orderId).then(() => {}).catch(() => {});
+        } else if (presenteId) {
+          realSupabase.from('gift_orders').update({ status: 'approved', payment_method: 'stripe' }).eq('gift_id', presenteId).then(() => {}).catch(() => {});
+        }
+      }
+
+      // Limpa a URL para evitar reprocessamento em reload
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (pagStatus === 'cancelado') {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  } catch(e){}
+}
+
+checkPaymentReturnParams();
 loadGifts();
 loadRsvpCount();
 })();

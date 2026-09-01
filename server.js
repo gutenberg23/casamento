@@ -238,7 +238,7 @@ app.post(["/api/create-payment", "/functions/v1/create-payment"], async (req, re
     const siteUrl = process.env.SITE_URL || `http://${req.headers.host || "localhost:3000"}`;
 
     // 1. Pix Direto Instantâneo (QR Code & Copia e Cola dos noivos)
-    if (selectedMethod === "pix_direct" || (!process.env.STRIPE_SECRET_KEY && selectedMethod !== "card_simulation")) {
+    if (selectedMethod === "pix_direct") {
       const pixCode = generatePixPayload({
         key: PIX_KEY,
         name: PIX_RECEIVER_NAME,
@@ -262,46 +262,58 @@ app.post(["/api/create-payment", "/functions/v1/create-payment"], async (req, re
       });
     }
 
-    // 2. Stripe Checkout (Cartão de Crédito e Pix)
-    if (selectedMethod === "stripe" || (process.env.STRIPE_SECRET_KEY && selectedMethod === "card")) {
-      if (process.env.STRIPE_SECRET_KEY) {
-        const stripeParams = new URLSearchParams();
-        stripeParams.append("payment_method_types[]", "card");
-        stripeParams.append("payment_method_types[]", "boleto");
-        stripeParams.append("line_items[0][price_data][currency]", "brl");
-        stripeParams.append("line_items[0][price_data][product_data][name]", `Presente: ${gift.name} — Iasmin & Gutenberg`);
-        stripeParams.append("line_items[0][price_data][unit_amount]", String(finalAmount));
-        stripeParams.append("line_items[0][quantity]", "1");
-        stripeParams.append("mode", "payment");
-        stripeParams.append("client_reference_id", order.id);
-        stripeParams.append("success_url", `${siteUrl}?pagamento=sucesso&presente=${gift_id}`);
-        stripeParams.append("cancel_url", `${siteUrl}?pagamento=falhou&presente=${gift_id}`);
-
-        const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-          body: stripeParams.toString(),
+    // 2. Stripe Checkout (Cartão de Crédito)
+    if (selectedMethod === "card" || selectedMethod === "stripe") {
+      const stripeKey = process.env.STRIPE_SECRET_KEY;
+      if (!stripeKey) {
+        return res.status(400).json({
+          error: "A chave STRIPE_SECRET_KEY não foi configurada no ambiente. Adicione a chave secreta do Stripe nas configurações (Settings/variáveis de ambiente).",
+          stripe_missing: true,
         });
-
-        const stripeData = await stripeRes.json();
-        if (!stripeRes.ok) {
-          return res.status(502).json({ error: "Erro ao criar checkout no Stripe.", detail: stripeData });
-        }
-
-        order.stripe_session_id = stripeData.id;
-        giftOrders.push(order);
-        return res.json({ provider: "stripe", init_point: stripeData.url, order_id: order.id });
       }
+
+      const stripeParams = new URLSearchParams();
+      stripeParams.append("payment_method_types[]", "card");
+      stripeParams.append("line_items[0][price_data][currency]", "brl");
+      stripeParams.append("line_items[0][price_data][product_data][name]", `Presente: ${gift.name} — Casamento Iasmin & Gutenberg`);
+      if (gift.description) {
+        stripeParams.append("line_items[0][price_data][product_data][description]", gift.description.slice(0, 200));
+      }
+      stripeParams.append("line_items[0][price_data][unit_amount]", String(finalAmount));
+      stripeParams.append("line_items[0][quantity]", "1");
+      stripeParams.append("mode", "payment");
+      stripeParams.append("client_reference_id", order.id);
+      stripeParams.append("metadata[gift_id]", gift_id);
+      stripeParams.append("metadata[buyer_name]", buyer_name);
+      stripeParams.append("metadata[order_id]", order.id);
+      if (buyer_message) {
+        stripeParams.append("metadata[buyer_message]", buyer_message.slice(0, 400));
+      }
+      stripeParams.append("success_url", `${siteUrl}?pagamento=sucesso&presente=${gift_id}&order_id=${order.id}&session_id={CHECKOUT_SESSION_ID}`);
+      stripeParams.append("cancel_url", `${siteUrl}?pagamento=cancelado&presente=${gift_id}`);
+
+      const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${stripeKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: stripeParams.toString(),
+      });
+
+      const stripeData = await stripeRes.json();
+      if (!stripeRes.ok) {
+        const msg = stripeData.error?.message || "Erro ao conectar com o Stripe.";
+        return res.status(502).json({ error: msg, detail: stripeData });
+      }
+
+      order.stripe_session_id = stripeData.id;
+      order.payment_method = "stripe";
+      giftOrders.push(order);
+      return res.json({ provider: "stripe", init_point: stripeData.url, order_id: order.id });
     }
 
-    // 3. Fallback para demonstração / preview
-    order.status = "approved";
-    giftOrders.push(order);
-    const mockSuccessUrl = `/?pagamento=sucesso&presente=${gift_id}`;
-    return res.json({ provider: "simulation", init_point: mockSuccessUrl, order_id: order.id });
+    return res.status(400).json({ error: "Método de pagamento não suportado." });
   } catch (err) {
     return res.status(500).json({ error: "Erro inesperado.", detail: String(err) });
   }
