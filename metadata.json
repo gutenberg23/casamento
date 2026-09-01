@@ -1,0 +1,6 @@
+{
+  "name": "Convite Casamento Iasmin & Gutenberg",
+  "description": "Hotsite de convite para a recepção do casamento de Iasmin e Gutenberg, com confirmação de presença (RSVP), lista de presentes e painel dos noivos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
