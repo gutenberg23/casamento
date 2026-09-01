@@ -197,6 +197,41 @@
     .gift-admin-row{ flex-wrap: wrap; }
   }
 
+  /* Checkout Modal & Payment Methods */
+  .checkout-summary{ background: var(--cream-deep); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px; margin-bottom: 18px; display:flex; justify-content:space-between; align-items:center; }
+  .checkout-summary h4{ margin:0 0 3px; font-size: 16px; font-family:'Playfair Display',serif; }
+  .checkout-summary p{ margin:0; font-size: 13px; color: var(--ink-soft); }
+  .checkout-summary .price-tag{ font-family:'Playfair Display',serif; font-size: 19px; color: var(--terracotta-deep); font-weight:700; white-space:nowrap; }
+
+  .method-selector{ display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }
+  .method-btn{ padding: 12px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); text-align:center; cursor:pointer; font-family:'Karla',sans-serif; transition: all .15s ease; color: var(--ink); }
+  .method-btn .icon{ font-size: 18px; margin-bottom: 3px; display:block; }
+  .method-btn .title{ font-weight: 600; font-size: 13px; display:block; }
+  .method-btn .sub{ font-size: 11px; color: var(--ink-soft); display:block; margin-top:2px; }
+  .method-btn.active{ border-color: var(--terracotta); background: rgba(198,124,78,0.08); color: var(--terracotta-deep); }
+  .method-btn:hover:not(.active){ border-color: var(--terracotta-soft); }
+
+  .preset-pills{ display:flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; margin-bottom: 10px; }
+  .preset-pill{ border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 4px 10px; font-size: 12px; cursor:pointer; font-family:'Karla',sans-serif; transition: all .15s; }
+  .preset-pill:hover{ border-color: var(--terracotta); color: var(--terracotta-deep); }
+  .preset-pill.active{ background: var(--terracotta); border-color: var(--terracotta); color: #fff; }
+
+  .pix-box{ background: var(--cream-deep); border: 1px dashed var(--terracotta-soft); border-radius: var(--radius); padding: 18px; text-align:center; margin-top: 12px; }
+  .pix-qr-img{ width: 180px; height: 180px; margin: 0 auto 12px; display:block; border: 1px solid var(--line); border-radius: 4px; background: #fff; padding: 4px; }
+  .pix-copy-container{ display:flex; gap: 6px; margin: 10px 0 14px; }
+  .pix-copy-input{ flex:1; font-family: monospace; font-size: 12px; padding: 9px; background: #fff; border: 1px solid var(--line); border-radius: var(--radius); color: var(--ink-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .btn-copy{ background: var(--terracotta); color: #fff; border:none; border-radius: var(--radius); padding: 0 14px; font-size: 13px; font-weight:600; cursor:pointer; font-family:'Karla',sans-serif; transition: background .15s; white-space:nowrap; }
+  .btn-copy:hover{ background: var(--terracotta-deep); }
+  .btn-copy.copied{ background: var(--sage-deep); }
+
+  .pix-info-details{ font-size: 13px; color: var(--ink-soft); text-align:left; line-height: 1.6; margin-bottom: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .pix-info-details b{ color: var(--ink); }
+
+  .checkout-success-view{ text-align:center; padding: 20px 10px; }
+  .checkout-success-view .icon-heart{ width: 44px; height: 44px; margin: 0 auto 12px; color: var(--terracotta); }
+  .checkout-success-view h3{ font-size: 22px; color: var(--terracotta-deep); margin-bottom: 6px; }
+  .checkout-success-view p{ color: var(--ink-soft); font-size: 14px; line-height: 1.5; }
+
   ::selection{ background: var(--blush); }
 </style>
 </head>
@@ -379,6 +414,108 @@
   <button class="admin-link" id="openAdmin">Painel dos noivos</button>
 </footer>
 
+<div class="modal-backdrop" id="checkoutBackdrop">
+  <div class="modal" style="max-width: 520px;">
+    <button class="modal-close" id="closeCheckout" aria-label="Fechar">&times;</button>
+    
+    <!-- Step 1: Form & Method Selection -->
+    <div id="checkoutStepForm">
+      <h3>Presentear os Noivos</h3>
+      
+      <div class="checkout-summary" id="checkoutSummary">
+        <div>
+          <h4 id="checkoutGiftName">Nome do Presente</h4>
+          <p id="checkoutGiftDesc">Descrição do item</p>
+        </div>
+        <div class="price-tag" id="checkoutGiftPrice">R$ 0,00</div>
+      </div>
+
+      <div class="field" id="checkoutAmountField" style="display:none;">
+        <label for="checkoutCustomAmount">Valor da sua contribuição (R$)</label>
+        <div class="preset-pills">
+          <button type="button" class="preset-pill" data-val="50">R$ 50</button>
+          <button type="button" class="preset-pill active" data-val="100">R$ 100</button>
+          <button type="button" class="preset-pill" data-val="200">R$ 200</button>
+          <button type="button" class="preset-pill" data-val="350">R$ 350</button>
+          <button type="button" class="preset-pill" data-val="500">R$ 500</button>
+        </div>
+        <input type="number" id="checkoutCustomAmount" min="10" step="5" value="100" placeholder="Ex: 150">
+      </div>
+
+      <div class="field">
+        <label for="checkoutBuyerName">Seu nome completo</label>
+        <input type="text" id="checkoutBuyerName" placeholder="Como você quer ser identificado no presente">
+      </div>
+
+      <div class="field">
+        <label for="checkoutBuyerMsg">Recado para os noivos (opcional)</label>
+        <textarea id="checkoutBuyerMsg" rows="2" placeholder="Deixe um carinho especial para Iasmin & Gutenberg"></textarea>
+      </div>
+
+      <label style="display:block; font-size:13px; font-weight:600; margin-bottom:8px;">Escolha a forma de pagamento</label>
+      <div class="method-selector">
+        <button type="button" class="method-btn active" id="btnMethodPix" data-method="pix_direct">
+          <span class="icon">💠</span>
+          <span class="title">Pix Instantâneo</span>
+          <span class="sub">QR Code & Copia e Cola</span>
+        </button>
+        <button type="button" class="method-btn" id="btnMethodCard" data-method="card">
+          <span class="icon">💳</span>
+          <span class="title">Cartão de Crédito</span>
+          <span class="sub">Em até 12x parcelado</span>
+        </button>
+      </div>
+
+      <div id="checkoutActionPix">
+        <button class="btn" id="btnGeneratePix" style="width:100%;">Gerar Pix para pagamento</button>
+      </div>
+
+      <div id="checkoutActionCard" style="display:none;">
+        <p style="font-size:13px; color:var(--ink-soft); margin-top:0; margin-bottom:12px;">Pagamento com Cartão de Crédito e parcelamento em até 12x com ambiente seguro e protegido.</p>
+        <button class="btn" id="btnPayCard" style="width:100%;">Continuar com Cartão</button>
+      </div>
+
+      <div class="form-msg err" id="checkoutErr" style="margin-top:12px;"></div>
+    </div>
+
+    <!-- Step 2: Pix QR Code & Copia e Cola -->
+    <div id="checkoutStepPix" style="display:none;">
+      <h3 style="margin-bottom:6px;">Pague com Pix</h3>
+      <p style="font-size:14px; color:var(--ink-soft); margin-top:0;">Abra o app do seu banco, escaneie o QR Code ou copie o código Pix abaixo:</p>
+
+      <div class="pix-box">
+        <img id="pixQrImg" class="pix-qr-img" alt="QR Code Pix" src="">
+        
+        <label style="font-size:12px; font-weight:600; display:block; text-align:left; color:var(--ink-soft); margin-bottom:4px;">Código Pix (Copia e Cola):</label>
+        <div class="pix-copy-container">
+          <input type="text" id="pixCodeInput" class="pix-copy-input" readonly>
+          <button type="button" class="btn-copy" id="btnCopyPix">Copiar</button>
+        </div>
+
+        <div class="pix-info-details">
+          <div><b>Valor:</b> <span id="pixDetailAmount">R$ 0,00</span></div>
+          <div><b>Beneficiário:</b> <span id="pixDetailReceiver">Iasmin & Gutenberg</span></div>
+          <div><b>Chave Pix:</b> <span id="pixDetailKey">gutenberg23@gmail.com</span></div>
+        </div>
+
+        <button class="btn" id="btnConfirmPixPaid" style="width:100%;">✓ Já realizei o Pix (Confirmar presente)</button>
+        <button class="btn-link" id="btnBackFromPix" style="margin-top:10px; font-size:13px;">Voltar</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Celebratory Confirmation -->
+    <div id="checkoutStepSuccess" style="display:none;" class="checkout-success-view">
+      <svg class="icon-heart" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+      </svg>
+      <h3>Muito obrigado pelo presente!</h3>
+      <p id="checkoutSuccessMsg">Seu carinho faz toda a diferença para o nosso novo lar. Iasmin & Gutenberg agradecem de coração!</p>
+      <button class="btn" id="btnCloseSuccess" style="margin-top:16px;">Concluir</button>
+    </div>
+
+  </div>
+</div>
+
 <div class="modal-backdrop" id="adminBackdrop">
   <div class="modal">
     <button class="modal-close" id="closeAdmin" aria-label="Fechar">&times;</button>
@@ -417,6 +554,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
+(function(){
 // ======================================================================
 // CONFIGURAÇÃO — preencha com os dados do seu projeto Supabase
 // (Supabase Dashboard > Project Settings > API)
@@ -427,7 +565,7 @@ const SUPABASE_ANON_KEY = "SUA_CHAVE_ANON_AQUI";
 
 const isRealSupabase = SUPABASE_URL && !SUPABASE_URL.includes("SEU-PROJETO") && SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.includes("SUA_CHAVE");
 
-const realSupabase = (isRealSupabase && window.supabase)
+const realSupabase = (isRealSupabase && window.supabase && typeof window.supabase.createClient === 'function')
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
 
@@ -554,7 +692,13 @@ document.querySelectorAll('.nav-links a').forEach(a => {
   window.history.replaceState({}, '', window.location.pathname);
 })();
 
-/* ---------------- gifts ---------------- */
+/* ---------------- gifts & checkout modal ---------------- */
+let currentGift = null;
+let currentGiftIsUnique = true;
+let selectedPaymentMethod = 'pix_direct';
+let currentPendingOrderId = null;
+let cachedGifts = [];
+
 async function loadGifts(){
   const grid = document.getElementById('giftGrid');
   grid.innerHTML = '<p style="color:var(--ink-soft); font-size:14px;">Carregando presentes...</p>';
@@ -569,6 +713,7 @@ async function loadGifts(){
     return;
   }
 
+  cachedGifts = data;
   grid.innerHTML = '';
   for (const gift of data){
     const isApproved = gift.order_status === 'approved';
@@ -585,7 +730,7 @@ async function loadGifts(){
         buttonHtml = `<button disabled>Aguardando confirmação</button>`;
       } else {
         statusHtml = `<span class="gift-status available">Disponível</span>`;
-        buttonHtml = `<button data-id="${gift.id}" data-unique="true">Pagar este presente</button>`;
+        buttonHtml = `<button data-id="${gift.id}" data-unique="true">Presentear este item</button>`;
       }
     } else {
       statusHtml = `<span class="gift-status available">Aceita várias contribuições</span>`;
@@ -599,32 +744,127 @@ async function loadGifts(){
       <h3>${escapeHtml(gift.name)}</h3>
       <p class="price">${formatBRL(gift.price_cents)}</p>
       <p class="desc">${escapeHtml(gift.description)}</p>
-      <p class="payment-note">Pix, débito ou crédito em até 12x</p>
+      <p class="payment-note">Pix ou cartão em até 12x</p>
       ${buttonHtml}
     `;
     grid.appendChild(card);
   }
 
   grid.querySelectorAll('button[data-id]').forEach(btn => {
-    btn.addEventListener('click', () => startPayment(btn.dataset.id, btn.dataset.unique === 'true'));
+    btn.addEventListener('click', () => openCheckoutModal(btn.dataset.id, btn.dataset.unique === 'true'));
   });
 }
 
-async function startPayment(giftId, unique){
-  const name = prompt('Seu nome, para deixarmos registrado no presente:');
-  if (!name || !name.trim()) return;
+function openCheckoutModal(giftId, isUnique){
+  const gift = cachedGifts.find(g => g.id === giftId);
+  if (!gift) return;
 
-  let amountCents = null;
-  if (!unique){
-    const valueStr = prompt('Quanto você quer contribuir? (em reais, ex: 100)');
-    if (!valueStr) return;
-    const value = parseFloat(valueStr.replace(',', '.'));
-    if (isNaN(value) || value < 10){
-      alert('Digite um valor válido, de pelo menos R$ 10.');
+  currentGift = gift;
+  currentGiftIsUnique = isUnique;
+  currentPendingOrderId = null;
+  selectedPaymentMethod = 'pix_direct';
+
+  // Reset steps
+  document.getElementById('checkoutStepForm').style.display = 'block';
+  document.getElementById('checkoutStepPix').style.display = 'none';
+  document.getElementById('checkoutStepSuccess').style.display = 'none';
+  document.getElementById('checkoutErr').textContent = '';
+
+  // Setup summary
+  document.getElementById('checkoutGiftName').textContent = gift.name;
+  document.getElementById('checkoutGiftDesc').textContent = gift.description || '';
+  document.getElementById('checkoutGiftPrice').textContent = formatBRL(gift.price_cents);
+
+  // Open / Unique amount handling
+  const amountField = document.getElementById('checkoutAmountField');
+  const customAmountInput = document.getElementById('checkoutCustomAmount');
+  if (!isUnique){
+    amountField.style.display = 'block';
+    customAmountInput.value = gift.price_cents ? (gift.price_cents / 100) : 100;
+  } else {
+    amountField.style.display = 'none';
+  }
+
+  // Clear inputs
+  document.getElementById('checkoutBuyerName').value = '';
+  document.getElementById('checkoutBuyerMsg').value = '';
+
+  // Reset method buttons
+  setPaymentMethod('pix_direct');
+
+  document.getElementById('checkoutBackdrop').classList.add('open');
+}
+
+function setPaymentMethod(method){
+  selectedPaymentMethod = method;
+  document.getElementById('btnMethodPix').classList.toggle('active', method === 'pix_direct');
+  document.getElementById('btnMethodCard').classList.toggle('active', method === 'card');
+  document.getElementById('checkoutActionPix').style.display = method === 'pix_direct' ? 'block' : 'none';
+  document.getElementById('checkoutActionCard').style.display = method === 'card' ? 'block' : 'none';
+}
+
+document.getElementById('btnMethodPix').addEventListener('click', () => setPaymentMethod('pix_direct'));
+document.getElementById('btnMethodCard').addEventListener('click', () => setPaymentMethod('card'));
+
+document.querySelectorAll('.preset-pill').forEach(pill => {
+  pill.addEventListener('click', () => {
+    document.querySelectorAll('.preset-pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    document.getElementById('checkoutCustomAmount').value = pill.dataset.val;
+  });
+});
+
+document.getElementById('closeCheckout').addEventListener('click', () => {
+  document.getElementById('checkoutBackdrop').classList.remove('open');
+});
+document.getElementById('btnCloseSuccess').addEventListener('click', () => {
+  document.getElementById('checkoutBackdrop').classList.remove('open');
+  loadGifts();
+});
+document.getElementById('btnBackFromPix').addEventListener('click', () => {
+  document.getElementById('checkoutStepPix').style.display = 'none';
+  document.getElementById('checkoutStepForm').style.display = 'block';
+});
+document.getElementById('checkoutBackdrop').addEventListener('click', (e) => {
+  if (e.target.id === 'checkoutBackdrop') e.currentTarget.classList.remove('open');
+});
+
+// Process PIX generation
+document.getElementById('btnGeneratePix').addEventListener('click', async () => {
+  await handleProcessPayment('pix_direct');
+});
+
+// Process Card payment
+document.getElementById('btnPayCard').addEventListener('click', async () => {
+  await handleProcessPayment('card');
+});
+
+async function handleProcessPayment(method){
+  const errEl = document.getElementById('checkoutErr');
+  errEl.textContent = '';
+
+  const nameInput = document.getElementById('checkoutBuyerName');
+  const buyerName = nameInput.value.trim();
+  if (!buyerName){
+    errEl.textContent = 'Por favor, informe seu nome para identificação do presente.';
+    nameInput.focus();
+    return;
+  }
+
+  let finalAmountCents = currentGift.price_cents;
+  if (!currentGiftIsUnique){
+    const val = parseFloat(document.getElementById('checkoutCustomAmount').value);
+    if (isNaN(val) || val < 10){
+      errEl.textContent = 'O valor mínimo para contribuição é de R$ 10,00.';
       return;
     }
-    amountCents = Math.round(value * 100);
+    finalAmountCents = Math.round(val * 100);
   }
+
+  const buyerMessage = document.getElementById('checkoutBuyerMsg').value.trim();
+  const btnActive = method === 'pix_direct' ? document.getElementById('btnGeneratePix') : document.getElementById('btnPayCard');
+  btnActive.disabled = true;
+  btnActive.textContent = 'Processando...';
 
   try{
     const res = await fetch(`${FUNCTIONS_URL}/create-payment`, {
@@ -634,21 +874,97 @@ async function startPayment(giftId, unique){
         apikey: SUPABASE_ANON_KEY,
         Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
       },
-      body: JSON.stringify({ gift_id: giftId, buyer_name: name.trim(), amount_cents: amountCents }),
+      body: JSON.stringify({
+        gift_id: currentGift.id,
+        buyer_name: buyerName,
+        amount_cents: finalAmountCents,
+        payment_method: method,
+        buyer_message: buyerMessage || null,
+      }),
     });
-    const data = await res.json();
 
+    const data = await res.json();
     if (!res.ok){
-      alert(data.error || 'Não foi possível iniciar o pagamento agora.');
-      loadGifts();
-      return;
+      throw new Error(data.error || 'Não foi possível processar o pagamento no momento.');
     }
 
-    window.location.href = data.init_point;
+    if (method === 'pix_direct' && data.pix_code){
+      currentPendingOrderId = data.order_id;
+      document.getElementById('pixQrImg').src = data.qr_code_url;
+      document.getElementById('pixCodeInput').value = data.pix_code;
+      document.getElementById('pixDetailAmount').textContent = formatBRL(data.amount_cents);
+      document.getElementById('pixDetailReceiver').textContent = data.receiver_name;
+      document.getElementById('pixDetailKey').textContent = data.pix_key;
+
+      document.getElementById('checkoutStepForm').style.display = 'none';
+      document.getElementById('checkoutStepPix').style.display = 'block';
+    } else if (data.init_point){
+      // Redirect to external checkout (Stripe / Asaas / Mercado Pago / Simulation)
+      window.location.href = data.init_point;
+    }
   } catch(e){
-    alert('Não deu pra conectar com o pagamento agora. Tenta de novo em instantes.');
+    errEl.textContent = e.message || 'Erro ao comunicar com o servidor. Tente novamente.';
+  } finally {
+    btnActive.disabled = false;
+    btnActive.textContent = method === 'pix_direct' ? 'Gerar Pix para pagamento' : 'Continuar com Cartão';
   }
 }
+
+// Copy Pix code button
+document.getElementById('btnCopyPix').addEventListener('click', async () => {
+  const code = document.getElementById('pixCodeInput').value;
+  const btn = document.getElementById('btnCopyPix');
+  try{
+    await navigator.clipboard.writeText(code);
+    btn.textContent = '✓ Copiado!';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = 'Copiar';
+      btn.classList.remove('copied');
+    }, 2500);
+  } catch(e){
+    document.getElementById('pixCodeInput').select();
+    document.execCommand('copy');
+    btn.textContent = '✓ Copiado!';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = 'Copiar';
+      btn.classList.remove('copied');
+    }, 2500);
+  }
+});
+
+// Confirm Pix Paid button
+document.getElementById('btnConfirmPixPaid').addEventListener('click', async () => {
+  const btn = document.getElementById('btnConfirmPixPaid');
+  btn.disabled = true;
+  btn.textContent = 'Confirmando...';
+
+  try{
+    if (currentPendingOrderId){
+      await fetch(`${FUNCTIONS_URL}/confirm-pix-order`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({ order_id: currentPendingOrderId }),
+      });
+    }
+
+    document.getElementById('checkoutStepPix').style.display = 'none';
+    document.getElementById('checkoutStepSuccess').style.display = 'block';
+    loadGifts();
+  } catch(e){
+    document.getElementById('checkoutStepPix').style.display = 'none';
+    document.getElementById('checkoutStepSuccess').style.display = 'block';
+    loadGifts();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✓ Já realizei o Pix (Confirmar presente)';
+  }
+});
 
 /* ---------------- rsvp ---------------- */
 let attending = 'sim';
@@ -910,14 +1226,24 @@ async function renderAdmin(){
 
   giftList.innerHTML = (!orders || orders.length === 0)
     ? '<p class="admin-row">Nenhum pedido ainda.</p>'
-    : orders.map(o => `
-        <div class="admin-row">
-          <b>${escapeHtml(o.gifts?.name || o.gift_id)} — ${formatBRL(o.amount_cents)}
-            <span class="status-tag ${o.status}">${o.status === 'approved' ? 'aprovado' : o.status === 'pending' ? 'pendente' : o.status}</span>
-          </b>
-          <span>${escapeHtml(o.buyer_name)}${o.installments ? ' · ' + o.installments + 'x' : ''}</span>
+    : orders.map(o => {
+        const methodLabel = o.payment_method === 'pix_direct' ? 'Pix Direto' 
+          : o.payment_method === 'stripe' ? 'Stripe (Cartão)' 
+          : (o.payment_method || 'Pix / Cartão');
+        return `
+        <div class="admin-row" style="display:flex; flex-direction:column; gap:4px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+            <b>${escapeHtml(o.gifts?.name || o.gift_id)} — ${formatBRL(o.amount_cents)}</b>
+            <div>
+              <span style="font-size:11px; background:var(--cream-deep); border:1px solid var(--line); border-radius:4px; padding:2px 6px; margin-right:4px;">${escapeHtml(methodLabel)}</span>
+              <span class="status-tag ${o.status}">${o.status === 'approved' ? 'aprovado' : o.status === 'pending' ? 'pendente' : o.status}</span>
+            </div>
+          </div>
+          <span style="font-size:13px; color:var(--ink);">${escapeHtml(o.buyer_name || 'Convidado')}${o.installments ? ' · ' + o.installments + 'x' : ''}</span>
+          ${o.buyer_message ? `<span style="font-size:12px; color:var(--ink-soft); font-style:italic; background:var(--cream-deep); padding:4px 8px; border-radius:4px;">"${escapeHtml(o.buyer_message)}"</span>` : ''}
         </div>
-      `).join('');
+      `;
+      }).join('');
 }
 
 /* ---------------- realtime: atualiza a tela quando algo muda ---------------- */
@@ -938,6 +1264,7 @@ supabase
 
 loadGifts();
 loadRsvpCount();
+})();
 </script>
 
 </body>

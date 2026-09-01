@@ -32,6 +32,9 @@ let rsvps = [
 ];
 
 const ADMIN_CODE = process.env.ADMIN_CODE || "casamento2026";
+const PIX_KEY = process.env.PIX_KEY || "gutenberg23@gmail.com";
+const PIX_RECEIVER_NAME = process.env.PIX_RECEIVER_NAME || "Iasmin e Gutenberg";
+const PIX_RECEIVER_CITY = process.env.PIX_RECEIVER_CITY || "Rio de Janeiro";
 
 function slugify(text) {
   return text
@@ -42,12 +45,64 @@ function slugify(text) {
     .slice(0, 40) || "presente";
 }
 
+// Gera payload Pix oficial no padrão BACEN (EMV BR Code)
+function generatePixPayload({ key, name, city, amount, txid = "***" }) {
+  const cleanName = (name || PIX_RECEIVER_NAME)
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "").slice(0, 25);
+  const cleanCity = (city || PIX_RECEIVER_CITY)
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "").slice(0, 15);
+  const cleanKey = key || PIX_KEY;
+  const cleanTxid = (txid || "***").replace(/[^a-zA-Z0-9]/g, "").slice(0, 25) || "***";
+
+  const formatField = (id, value) => {
+    const len = String(value.length).padStart(2, "0");
+    return `${id}${len}${value}`;
+  };
+
+  const merchantAccountInfo =
+    formatField("00", "br.gov.bcb.pix") +
+    formatField("01", cleanKey);
+
+  let payload =
+    formatField("00", "01") +
+    formatField("26", merchantAccountInfo) +
+    formatField("52", "0000") +
+    formatField("53", "986");
+
+  if (amount && amount > 0) {
+    const formattedAmount = Number(amount).toFixed(2);
+    payload += formatField("54", formattedAmount);
+  }
+
+  payload +=
+    formatField("58", "BR") +
+    formatField("59", cleanName) +
+    formatField("60", cleanCity) +
+    formatField("62", formatField("05", cleanTxid)) +
+    "6304";
+
+  // CRC16-CCITT (0x1021)
+  let crc = 0xffff;
+  for (let i = 0; i < payload.length; i++) {
+    crc ^= payload.charCodeAt(i) << 8;
+    for (let j = 0; j < 8; j++) {
+      if ((crc & 0x8000) !== 0) {
+        crc = ((crc << 1) ^ 0x1021) & 0xffff;
+      } else {
+        crc = (crc << 1) & 0xffff;
+      }
+    }
+  }
+  const crcHex = crc.toString(16).toUpperCase().padStart(4, "0");
+  return payload + crcHex;
+}
+
 function getGiftStatusList() {
   return gifts
     .filter(g => g.active)
     .map(g => {
       const activeOrder = giftOrders.find(
-        o => o.gift_id === g.id && (o.status === "approved" || (o.status === "pending" && (Date.now() - new Date(o.created_at).getTime() < 30 * 60 * 1000)))
+        o => o.gift_id === g.id && (o.status === "approved" || (o.status === "pending" && (Date.now() - new Date(o.created_at).getTime() < 60 * 60 * 1000)))
       );
 
       return {
@@ -57,6 +112,7 @@ function getGiftStatusList() {
         order_status: activeOrder ? activeOrder.status : null,
         order_amount_cents: activeOrder ? activeOrder.amount_cents : null,
         installments: activeOrder ? activeOrder.installments : null,
+        payment_method: activeOrder ? activeOrder.payment_method : null,
       };
     })
     .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
@@ -67,7 +123,10 @@ app.get("/api/config", (req, res) => {
   res.json({
     supabase_url: process.env.SUPABASE_URL || null,
     supabase_anon_key: process.env.SUPABASE_ANON_KEY || null,
-    has_mp: !!process.env.MP_ACCESS_TOKEN,
+    has_stripe: !!process.env.STRIPE_SECRET_KEY,
+    pix_key: PIX_KEY,
+    pix_receiver_name: PIX_RECEIVER_NAME,
+    pix_receiver_city: PIX_RECEIVER_CITY,
     default_admin_code: process.env.NODE_ENV !== "production" ? ADMIN_CODE : undefined,
   });
 });
@@ -114,10 +173,10 @@ app.get(["/api/orders", "/rest/v1/gift_orders"], (req, res) => {
   res.json(list);
 });
 
-// Create Payment (Mercado Pago or Mock simulation)
+// Create Payment (Pix Direto, Stripe, Asaas, Mercado Pago or Simulation)
 app.post(["/api/create-payment", "/functions/v1/create-payment"], async (req, res) => {
   try {
-    const { gift_id, buyer_name, amount_cents } = req.body;
+    const { gift_id, buyer_name, amount_cents, payment_method, buyer_message } = req.body;
 
     if (!gift_id || !buyer_name || !buyer_name.trim()) {
       return res.status(400).json({ error: "gift_id e buyer_name são obrigatórios." });
@@ -130,7 +189,7 @@ app.post(["/api/create-payment", "/functions/v1/create-payment"], async (req, re
 
     if (gift.unique_item) {
       const activeOrder = giftOrders.find(
-        o => o.gift_id === gift_id && (o.status === "approved" || (o.status === "pending" && Date.now() - new Date(o.created_at).getTime() < 30 * 60 * 1000))
+        o => o.gift_id === gift_id && (o.status === "approved" || (o.status === "pending" && Date.now() - new Date(o.created_at).getTime() < 60 * 60 * 1000))
       );
       if (activeOrder) {
         return res.status(409).json({ error: "Esse presente já foi escolhido por outra pessoa." });
@@ -142,114 +201,131 @@ app.post(["/api/create-payment", "/functions/v1/create-payment"], async (req, re
       : (amount_cents && amount_cents >= 1000 ? amount_cents : gift.price_cents);
 
     const orderId = `order_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const selectedMethod = payment_method || "pix_direct";
+
     const order = {
       id: orderId,
       gift_id,
       buyer_name: buyer_name.trim(),
+      buyer_message: buyer_message ? String(buyer_message).trim() : null,
       amount_cents: finalAmount,
-      status: "approved", // In local mock mode, automatically approves for seamless UX
+      payment_method: selectedMethod,
+      status: "pending",
       mp_preference_id: null,
-      mp_payment_id: `sim_${Date.now()}`,
+      stripe_session_id: null,
+      asaas_payment_id: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
 
-    if (process.env.MP_ACCESS_TOKEN) {
-      // Real Mercado Pago integration
-      const siteUrl = process.env.SITE_URL || `http://${req.headers.host || "localhost:3000"}`;
-      order.status = "pending";
+    const siteUrl = process.env.SITE_URL || `http://${req.headers.host || "localhost:3000"}`;
 
-      const mpResponse = await fetch("https://api.mercadopago.com/checkout/preferences", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}`,
-        },
-        body: JSON.stringify({
-          items: [
-            {
-              title: `Presente: ${gift.name} — Iasmin & Gutenberg`,
-              quantity: 1,
-              unit_price: finalAmount / 100,
-              currency_id: "BRL",
-            },
-          ],
-          payer: { name: buyer_name.trim() },
-          payment_methods: {
-            installments: 12,
-            excluded_payment_types: [{ id: "ticket" }],
-          },
-          back_urls: {
-            success: `${siteUrl}?pagamento=sucesso&presente=${gift_id}`,
-            failure: `${siteUrl}?pagamento=falhou&presente=${gift_id}`,
-            pending: `${siteUrl}?pagamento=pendente&presente=${gift_id}`,
-          },
-          auto_return: "approved",
-          external_reference: order.id,
-          notification_url: `${siteUrl}/api/mp-webhook`,
-          statement_descriptor: "CASAMENTO IEG",
-        }),
+    // 1. Pix Direto Instantâneo (QR Code & Copia e Cola dos noivos)
+    if (selectedMethod === "pix_direct" || (!process.env.STRIPE_SECRET_KEY && selectedMethod !== "card_simulation")) {
+      const pixCode = generatePixPayload({
+        key: PIX_KEY,
+        name: PIX_RECEIVER_NAME,
+        city: PIX_RECEIVER_CITY,
+        amount: finalAmount / 100,
+        txid: order.id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 20),
       });
 
-      const mpData = await mpResponse.json();
-      if (!mpResponse.ok) {
-        return res.status(502).json({ error: "Erro ao criar cobrança no Mercado Pago.", detail: mpData });
-      }
+      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=10&data=${encodeURIComponent(pixCode)}`;
 
-      order.mp_preference_id = mpData.id;
       giftOrders.push(order);
-      return res.json({ init_point: mpData.init_point, order_id: order.id });
+      return res.json({
+        provider: "pix_direct",
+        order_id: order.id,
+        amount_cents: finalAmount,
+        pix_code: pixCode,
+        qr_code_url: qrCodeUrl,
+        pix_key: PIX_KEY,
+        receiver_name: PIX_RECEIVER_NAME,
+        receiver_city: PIX_RECEIVER_CITY,
+      });
     }
 
-    // Mock Mode fallback: Order is recorded as approved and redirected with success banner
+    // 2. Stripe Checkout (Cartão de Crédito e Pix)
+    if (selectedMethod === "stripe" || (process.env.STRIPE_SECRET_KEY && selectedMethod === "card")) {
+      if (process.env.STRIPE_SECRET_KEY) {
+        const stripeParams = new URLSearchParams();
+        stripeParams.append("payment_method_types[]", "card");
+        stripeParams.append("payment_method_types[]", "boleto");
+        stripeParams.append("line_items[0][price_data][currency]", "brl");
+        stripeParams.append("line_items[0][price_data][product_data][name]", `Presente: ${gift.name} — Iasmin & Gutenberg`);
+        stripeParams.append("line_items[0][price_data][unit_amount]", String(finalAmount));
+        stripeParams.append("line_items[0][quantity]", "1");
+        stripeParams.append("mode", "payment");
+        stripeParams.append("client_reference_id", order.id);
+        stripeParams.append("success_url", `${siteUrl}?pagamento=sucesso&presente=${gift_id}`);
+        stripeParams.append("cancel_url", `${siteUrl}?pagamento=falhou&presente=${gift_id}`);
+
+        const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: stripeParams.toString(),
+        });
+
+        const stripeData = await stripeRes.json();
+        if (!stripeRes.ok) {
+          return res.status(502).json({ error: "Erro ao criar checkout no Stripe.", detail: stripeData });
+        }
+
+        order.stripe_session_id = stripeData.id;
+        giftOrders.push(order);
+        return res.json({ provider: "stripe", init_point: stripeData.url, order_id: order.id });
+      }
+    }
+
+    // 3. Fallback para demonstração / preview
+    order.status = "approved";
     giftOrders.push(order);
     const mockSuccessUrl = `/?pagamento=sucesso&presente=${gift_id}`;
-    return res.json({ init_point: mockSuccessUrl, order_id: order.id });
+    return res.json({ provider: "simulation", init_point: mockSuccessUrl, order_id: order.id });
   } catch (err) {
     return res.status(500).json({ error: "Erro inesperado.", detail: String(err) });
   }
 });
 
-// Mercado Pago Webhook
-app.all(["/api/mp-webhook", "/functions/v1/mp-webhook"], async (req, res) => {
+// Confirmação do Pix direto feita pelo convidado
+app.post("/api/confirm-pix-order", (req, res) => {
+  const { order_id } = req.body;
+  if (!order_id) {
+    return res.status(400).json({ error: "order_id é obrigatório." });
+  }
+
+  const order = giftOrders.find(o => o.id === order_id);
+  if (!order) {
+    return res.status(404).json({ error: "Pedido não encontrado." });
+  }
+
+  order.status = "approved";
+  order.updated_at = new Date().toISOString();
+
+  return res.json({ success: true, order });
+});
+
+// Stripe Webhook
+app.post("/api/stripe-webhook", (req, res) => {
   try {
-    let paymentId = req.query["data.id"] || req.query.id;
-    const topic = req.query.type || req.query.topic;
-
-    if (!paymentId && req.method === "POST" && req.body) {
-      paymentId = req.body?.data?.id || req.body?.id;
-    }
-
-    if (!paymentId || (topic && topic !== "payment")) {
-      return res.status(200).send("ok");
-    }
-
-    if (!process.env.MP_ACCESS_TOKEN) {
-      return res.status(200).send("ok");
-    }
-
-    const mpRes = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-      headers: { Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}` },
-    });
-
-    if (mpRes.ok) {
-      const payment = await mpRes.json();
-      const orderId = payment.external_reference;
+    const event = req.body;
+    if (event?.type === "checkout.session.completed") {
+      const session = event.data.object;
+      const orderId = session.client_reference_id;
       if (orderId) {
         const order = giftOrders.find(o => o.id === orderId);
         if (order) {
-          order.status = payment.status || "pending";
-          order.mp_payment_id = String(payment.id);
-          order.installments = payment.installments || null;
+          order.status = "approved";
           order.updated_at = new Date().toISOString();
         }
       }
     }
-
-    return res.status(200).send("ok");
+    return res.json({ received: true });
   } catch (err) {
-    console.error("Webhook error:", err);
-    return res.status(200).send("ok");
+    return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 });
 

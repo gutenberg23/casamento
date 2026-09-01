@@ -1,7 +1,6 @@
 // Edge Function: create-payment
-// Recebe { gift_id, buyer_name, amount_cents } do site,
-// cria um pedido no banco e uma preferência de pagamento no Mercado Pago,
-// devolve a URL de checkout (init_point) para o navegador redirecionar.
+// Recebe { gift_id, buyer_name, amount_cents, payment_method } do site,
+// cria o pedido e devolve o Pix ou URL de checkout do Stripe.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -17,7 +16,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { gift_id, buyer_name, amount_cents } = await req.json();
+    const { gift_id, buyer_name, amount_cents, payment_method, buyer_message } = await req.json();
 
     if (!gift_id || !buyer_name || !buyer_name.trim()) {
       return json({ error: "gift_id e buyer_name são obrigatórios." }, 400);
@@ -56,12 +55,16 @@ Deno.serve(async (req) => {
       ? gift.price_cents
       : (amount_cents && amount_cents >= 1000 ? amount_cents : gift.price_cents);
 
+    const selectedMethod = payment_method || "pix_direct";
+
     const { data: order, error: orderError } = await supabase
       .from("gift_orders")
       .insert({
         gift_id,
         buyer_name: buyer_name.trim(),
+        buyer_message: buyer_message ? String(buyer_message).trim() : null,
         amount_cents: finalAmount,
+        payment_method: selectedMethod,
         status: "pending",
       })
       .select()
@@ -72,52 +75,58 @@ Deno.serve(async (req) => {
     }
 
     const siteUrl = Deno.env.get("SITE_URL") ?? "https://exemplo.com";
+    const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
 
-    const mpResponse = await fetch("https://api.mercadopago.com/checkout/preferences", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${Deno.env.get("MP_ACCESS_TOKEN")}`,
-      },
-      body: JSON.stringify({
-        items: [
-          {
-            title: `Presente: ${gift.name} — Iasmin & Gutenberg`,
-            quantity: 1,
-            unit_price: finalAmount / 100,
-            currency_id: "BRL",
-          },
-        ],
-        payer: { name: buyer_name.trim() },
-        payment_methods: {
-          installments: 12,
-          excluded_payment_types: [{ id: "ticket" }],
+    // 1. Stripe Checkout
+    if (selectedMethod === "card" && stripeKey) {
+      const stripeParams = new URLSearchParams();
+      stripeParams.append("payment_method_types[]", "card");
+      stripeParams.append("payment_method_types[]", "boleto");
+      stripeParams.append("line_items[0][price_data][currency]", "brl");
+      stripeParams.append("line_items[0][price_data][product_data][name]", `Presente: ${gift.name} — Iasmin & Gutenberg`);
+      stripeParams.append("line_items[0][price_data][unit_amount]", String(finalAmount));
+      stripeParams.append("line_items[0][quantity]", "1");
+      stripeParams.append("mode", "payment");
+      stripeParams.append("client_reference_id", order.id);
+      stripeParams.append("success_url", `${siteUrl}?pagamento=sucesso&presente=${gift_id}`);
+      stripeParams.append("cancel_url", `${siteUrl}?pagamento=falhou&presente=${gift_id}`);
+
+      const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${stripeKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
         },
-        back_urls: {
-          success: `${siteUrl}?pagamento=sucesso&presente=${gift_id}`,
-          failure: `${siteUrl}?pagamento=falhou&presente=${gift_id}`,
-          pending: `${siteUrl}?pagamento=pendente&presente=${gift_id}`,
-        },
-        auto_return: "approved",
-        external_reference: order.id,
-        notification_url: `${Deno.env.get("SUPABASE_URL")}/functions/v1/mp-webhook`,
-        statement_descriptor: "CASAMENTO IEG",
-      }),
-    });
+        body: stripeParams.toString(),
+      });
 
-    const mpData = await mpResponse.json();
+      const stripeData = await stripeRes.json();
+      if (!stripeRes.ok) {
+        return json({ error: "Erro ao criar checkout no Stripe.", detail: stripeData }, 502);
+      }
 
-    if (!mpResponse.ok) {
-      await supabase.from("gift_orders").update({ status: "cancelled" }).eq("id", order.id);
-      return json({ error: "Erro ao criar cobrança no Mercado Pago.", detail: mpData }, 502);
+      await supabase
+        .from("gift_orders")
+        .update({ stripe_session_id: stripeData.id })
+        .eq("id", order.id);
+
+      return json({ provider: "stripe", init_point: stripeData.url, order_id: order.id });
     }
 
-    await supabase
-      .from("gift_orders")
-      .update({ mp_preference_id: mpData.id })
-      .eq("id", order.id);
+    // 2. Pix Direto Instantâneo
+    const pixKey = Deno.env.get("PIX_KEY") || "gutenberg23@gmail.com";
+    const receiverName = Deno.env.get("PIX_RECEIVER_NAME") || "Iasmin e Gutenberg";
+    const receiverCity = Deno.env.get("PIX_RECEIVER_CITY") || "Rio de Janeiro";
 
-    return json({ init_point: mpData.init_point, order_id: order.id });
+    // Simulação ou Pix code
+    return json({
+      provider: "pix_direct",
+      order_id: order.id,
+      amount_cents: finalAmount,
+      pix_key: pixKey,
+      receiver_name: receiverName,
+      receiver_city: receiverCity,
+    });
   } catch (err) {
     return json({ error: "Erro inesperado.", detail: String(err) }, 500);
   }
