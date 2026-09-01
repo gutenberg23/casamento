@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Iasmin & Gutenberg — 21 de outubro</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=Karla:wght@400;500;600&display=swap" rel="stylesheet">
@@ -867,25 +868,43 @@ async function handleProcessPayment(method){
   btnActive.textContent = 'Processando...';
 
   try{
-    const res = await fetch(`${FUNCTIONS_URL}/create-payment`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      },
-      body: JSON.stringify({
-        gift_id: currentGift.id,
-        buyer_name: buyerName,
-        amount_cents: finalAmountCents,
-        payment_method: method,
-        buyer_message: buyerMessage || null,
-      }),
+    const payload = JSON.stringify({
+      gift_id: currentGift.id,
+      buyer_name: buyerName,
+      amount_cents: finalAmountCents,
+      payment_method: method,
+      buyer_message: buyerMessage || null,
     });
 
-    const data = await res.json();
-    if (!res.ok){
-      throw new Error(data.error || 'Não foi possível processar o pagamento no momento.');
+    let res;
+    let data;
+    try {
+      res = await fetch(`${FUNCTIONS_URL}/create-payment`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        body: payload,
+      });
+      if (res.ok) {
+        data = await res.json();
+      }
+    } catch(err) {
+      // try fallback below
+    }
+
+    if (!data) {
+      const fallbackRes = await fetch('/api/create-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+      });
+      data = await fallbackRes.json().catch(() => ({}));
+      if (!fallbackRes.ok) {
+        throw new Error(data.error || 'Não foi possível processar o pagamento no momento.');
+      }
     }
 
     if (method === 'pix_direct' && data.pix_code){
@@ -899,7 +918,7 @@ async function handleProcessPayment(method){
       document.getElementById('checkoutStepForm').style.display = 'none';
       document.getElementById('checkoutStepPix').style.display = 'block';
     } else if (data.init_point){
-      // Redirect to external checkout (Stripe / Asaas / Mercado Pago / Simulation)
+      // Redirect to external checkout (Stripe / Simulation)
       window.location.href = data.init_point;
     }
   } catch(e){
@@ -942,15 +961,24 @@ document.getElementById('btnConfirmPixPaid').addEventListener('click', async () 
 
   try{
     if (currentPendingOrderId){
-      await fetch(`${FUNCTIONS_URL}/confirm-pix-order`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({ order_id: currentPendingOrderId }),
-      });
+      const confirmPayload = JSON.stringify({ order_id: currentPendingOrderId });
+      try {
+        await fetch(`${FUNCTIONS_URL}/confirm-pix-order`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: confirmPayload,
+        });
+      } catch(e) {
+        await fetch('/api/confirm-pix-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: confirmPayload,
+        }).catch(() => {});
+      }
     }
 
     document.getElementById('checkoutStepPix').style.display = 'none';
@@ -1051,17 +1079,37 @@ document.querySelectorAll('.admin-tab').forEach(tab => {
 });
 
 async function callAdminGifts(action, gift){
-  const res = await fetch(`${FUNCTIONS_URL}/admin-gifts`, {
+  const payload = JSON.stringify({ code: adminCode, action, gift });
+  let res;
+  let data;
+  try {
+    res = await fetch(`${FUNCTIONS_URL}/admin-gifts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: payload,
+    });
+    if (res.ok) {
+      data = await res.json();
+      return data;
+    }
+  } catch (e) {
+    // try fallback below
+  }
+
+  // Fallback to local server API
+  const fallbackRes = await fetch('/api/admin-gifts', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-    },
-    body: JSON.stringify({ code: adminCode, action, gift }),
+    headers: { 'Content-Type': 'application/json' },
+    body: payload,
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Erro na operação.');
+  data = await fallbackRes.json().catch(() => ({}));
+  if (!fallbackRes.ok) {
+    throw new Error(data.error || (fallbackRes.status === 401 ? 'Código incorreto.' : 'Erro na operação.'));
+  }
   return data;
 }
 
