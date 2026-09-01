@@ -859,40 +859,52 @@ async function loadGifts(){
   const grid = document.getElementById('giftGrid');
   grid.innerHTML = '<p style="color:var(--ink-soft); font-size:14px;">Carregando presentes...</p>';
 
-  let data = null;
-  let error = null;
+  let gifts = [];
+  let orders = [];
 
-  try {
-    const res = await supabase.from('gift_status').select('*').order('sort_order');
-    if (!res.error && res.data && res.data.length > 0) {
-      data = res.data;
-    } else {
-      // Fallback: tentar tabela 'gifts' direta se a view 'gift_status' não existir
-      const fallback = await supabase.from('gifts').select('*').order('sort_order');
-      if (!fallback.error && fallback.data && fallback.data.length > 0) {
-        data = fallback.data;
-      }
-    }
-  } catch(e){
-    error = e;
+  if (realSupabase) {
+    try {
+      const [gRes, oRes] = await Promise.all([
+        realSupabase.from('gifts').select('*').order('sort_order'),
+        realSupabase.from('gift_orders').select('*').order('created_at', { ascending: false })
+      ]);
+      if (!gRes.error && gRes.data && gRes.data.length > 0) gifts = gRes.data;
+      if (!oRes.error && oRes.data) orders = oRes.data;
+    } catch(e){}
   }
 
-  // Se o Supabase ainda não tiver a tabela criada via SQL, usa os dados padrão locais
-  if (!data || data.length === 0){
-    data = getStoredGifts();
+  // Fallback para armazenamento local
+  if (!gifts || gifts.length === 0){
+    gifts = getStoredGifts();
+  }
+  if (!orders || orders.length === 0){
+    orders = getStoredOrders();
   }
 
-  cachedGifts = data;
+  // Mescla pedidos aprovados com os presentes para garantir que itens comprados fiquem indisponíveis
+  const mergedGifts = gifts.filter(g => g.active !== false).map(g => {
+    const approvedOrder = orders.find(o => o.gift_id === g.id && o.status === 'approved');
+    const pendingOrder = orders.find(o => o.gift_id === g.id && o.status === 'pending');
+    const activeOrder = approvedOrder || pendingOrder;
+    return {
+      ...g,
+      order_id: activeOrder?.id || null,
+      buyer_name: activeOrder?.buyer_name || null,
+      order_status: activeOrder?.status || null,
+      order_amount_cents: activeOrder?.amount_cents || null
+    };
+  }).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+
+  cachedGifts = mergedGifts;
   grid.innerHTML = '';
-  for (const gift of data){
+  for (const gift of mergedGifts){
     const isApproved = gift.order_status === 'approved';
     const isPending = gift.order_status === 'pending';
-    const taken = gift.unique_item && (isApproved || isPending);
 
     let statusHtml, buttonHtml;
     if (gift.unique_item){
       if (isApproved){
-        statusHtml = `<span class="gift-status taken">Escolhido por ${escapeHtml(gift.buyer_name)}</span>`;
+        statusHtml = `<span class="gift-status taken">Escolhido por ${escapeHtml(gift.buyer_name || 'Convidado')}</span>`;
         buttonHtml = `<button disabled>Já foi presenteado</button>`;
       } else if (isPending){
         statusHtml = `<span class="gift-status pending">Pagamento em processamento</span>`;
@@ -1033,78 +1045,41 @@ async function handleProcessPayment(method){
   const buyerMessage = document.getElementById('checkoutBuyerMsg').value.trim();
   const btnActive = method === 'pix_direct' ? document.getElementById('btnGeneratePix') : document.getElementById('btnPayCard');
   btnActive.disabled = true;
-  btnActive.textContent = 'Processando...';
+  btnActive.textContent = 'Gerando...';
 
   try{
-    const orderId = `order_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const txid = `IG${Date.now().toString().slice(-8)}`;
+    const pixCode = generatePixPayload({
+      key: PIX_KEY,
+      name: PIX_RECEIVER_NAME,
+      city: PIX_RECEIVER_CITY,
+      amount: finalAmountCents / 100,
+      txid: txid
+    });
+    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=10&data=${encodeURIComponent(pixCode)}`;
 
-    if (method === 'pix_direct'){
-      const pixCode = generatePixPayload({
-        key: PIX_KEY,
-        name: PIX_RECEIVER_NAME,
-        city: PIX_RECEIVER_CITY,
-        amount: finalAmountCents / 100,
-        txid: orderId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 20)
-      });
-      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=10&data=${encodeURIComponent(pixCode)}`;
+    currentPendingOrderId = `order_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    document.getElementById('pixQrImg').src = qrCodeUrl;
+    document.getElementById('pixCodeInput').value = pixCode;
+    document.getElementById('pixDetailAmount').textContent = formatBRL(finalAmountCents);
+    document.getElementById('pixDetailReceiver').textContent = PIX_RECEIVER_NAME;
+    document.getElementById('pixDetailKey').textContent = PIX_KEY;
 
-      currentPendingOrderId = orderId;
-      document.getElementById('pixQrImg').src = qrCodeUrl;
-      document.getElementById('pixCodeInput').value = pixCode;
-      document.getElementById('pixDetailAmount').textContent = formatBRL(finalAmountCents);
-      document.getElementById('pixDetailReceiver').textContent = PIX_RECEIVER_NAME;
-      document.getElementById('pixDetailKey').textContent = PIX_KEY;
-
-      const newOrder = {
-        id: orderId,
-        gift_id: currentGift.id,
-        buyer_name: buyerName,
-        buyer_message: buyerMessage || null,
-        amount_cents: finalAmountCents,
-        payment_method: 'pix_direct',
-        status: 'pending',
-        created_at: new Date().toISOString()
-      };
-
-      if (realSupabase) {
-        realSupabase.from('gift_orders').insert([newOrder]).then(() => {}).catch(() => {});
-      }
-      const orders = getStoredOrders();
-      orders.unshift(newOrder);
-      saveStoredOrders(orders);
-
-      document.getElementById('checkoutStepForm').style.display = 'none';
-      document.getElementById('checkoutStepPix').style.display = 'block';
-      return;
+    // Se for cartão, adiciona instrução de parcelamento via Pix no banco
+    const pixStepTitle = document.querySelector('#checkoutStepPix h3');
+    const pixStepSub = document.querySelector('#checkoutStepPix p');
+    if (method === 'card') {
+      pixStepTitle.textContent = 'Pagamento com Cartão (via Pix Parcelado)';
+      pixStepSub.textContent = 'Você pode parcelar este valor em até 12x no cartão de crédito diretamente no app do seu banco (como Nubank, PicPay, Mercado Pago, etc.) usando o código abaixo:';
+    } else {
+      pixStepTitle.textContent = 'Pague com Pix';
+      pixStepSub.textContent = 'Abra o app do seu banco, escaneie o QR Code ou copie o código Pix abaixo:';
     }
 
-    if (method === 'card'){
-      // Tentar backend de pagamento se disponível
-      let data = null;
-      try {
-        const fallbackRes = await fetch('/api/create-payment', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            gift_id: currentGift.id,
-            buyer_name: buyerName,
-            amount_cents: finalAmountCents,
-            payment_method: 'card',
-            buyer_message: buyerMessage || null,
-          }),
-        });
-        if (fallbackRes.ok) data = await fallbackRes.json();
-      } catch(e){}
-
-      if (data && data.init_point){
-        window.location.href = data.init_point;
-        return;
-      }
-
-      errEl.textContent = 'O pagamento via cartão está temporariamente indisponível. Por favor, utilize a opção Pix direto.';
-    }
+    document.getElementById('checkoutStepForm').style.display = 'none';
+    document.getElementById('checkoutStepPix').style.display = 'block';
   } catch(e){
-    errEl.textContent = e.message || 'Erro ao gerar o pagamento. Tente novamente.';
+    errEl.textContent = e.message || 'Erro ao gerar o código. Tente novamente.';
   } finally {
     btnActive.disabled = false;
     btnActive.textContent = method === 'pix_direct' ? 'Gerar Pix para pagamento' : 'Continuar com Cartão';
@@ -1141,29 +1116,41 @@ document.getElementById('btnConfirmPixPaid').addEventListener('click', async () 
   btn.disabled = true;
   btn.textContent = 'Confirmando...';
 
+  const buyerName = document.getElementById('checkoutBuyerName').value.trim() || 'Convidado';
+  const buyerMessage = document.getElementById('checkoutBuyerMsg').value.trim();
+  let finalAmountCents = currentGift ? currentGift.price_cents : 0;
+  if (!currentGiftIsUnique){
+    const val = parseFloat(document.getElementById('checkoutCustomAmount').value);
+    if (!isNaN(val) && val >= 10) finalAmountCents = Math.round(val * 100);
+  }
+
+  const orderRecord = {
+    gift_id: currentGift ? currentGift.id : 'presente',
+    buyer_name: buyerName,
+    amount_cents: finalAmountCents,
+    payment_method: selectedPaymentMethod,
+    buyer_message: buyerMessage || null,
+    status: 'approved'
+  };
+
   try{
-    if (currentPendingOrderId){
-      if (realSupabase) {
-        try {
-          await realSupabase.from('gift_orders').update({ status: 'approved' }).eq('id', currentPendingOrderId);
-        } catch(e){}
+    // Salva no Supabase se configurado
+    if (realSupabase) {
+      try {
+        await realSupabase.from('gift_orders').insert([orderRecord]);
+      } catch(e){
+        console.warn('Supabase order insert note:', e);
       }
-      const orders = getStoredOrders();
-      const idx = orders.findIndex(o => o.id === currentPendingOrderId);
-      if (idx !== -1) {
-        orders[idx].status = 'approved';
-      } else {
-        orders.unshift({
-          id: currentPendingOrderId,
-          gift_id: currentGift ? currentGift.id : null,
-          status: 'approved',
-          buyer_name: document.getElementById('checkoutBuyerName').value.trim() || 'Convidado',
-          amount_cents: currentGift ? currentGift.price_cents : 0,
-          created_at: new Date().toISOString()
-        });
-      }
-      saveStoredOrders(orders);
     }
+
+    // Salva no LocalStorage para sincronia garantida
+    const orders = getStoredOrders();
+    orders.unshift({
+      id: currentPendingOrderId || `order_${Date.now()}`,
+      created_at: new Date().toISOString(),
+      ...orderRecord
+    });
+    saveStoredOrders(orders);
 
     document.getElementById('checkoutStepPix').style.display = 'none';
     document.getElementById('checkoutStepSuccess').style.display = 'block';
@@ -1171,7 +1158,7 @@ document.getElementById('btnConfirmPixPaid').addEventListener('click', async () 
   } catch(e){
     document.getElementById('checkoutStepPix').style.display = 'none';
     document.getElementById('checkoutStepSuccess').style.display = 'block';
-    loadGifts();
+    await loadGifts();
   } finally {
     btn.disabled = false;
     btn.textContent = '✓ Já realizei o Pix (Confirmar presente)';
@@ -1209,11 +1196,27 @@ document.getElementById('rsvpSubmit').addEventListener('click', async () => {
   const submitBtn = document.getElementById('rsvpSubmit');
   submitBtn.disabled = true;
 
-  const { error } = await supabase.from('rsvps').insert({
-    name, attending: attending === 'sim', guests, message: message || null,
-  });
+  const rsvpData = {
+    name,
+    attending: attending === 'sim',
+    guests,
+    message: message || null,
+  };
 
-  if (error){
+  let savedOk = false;
+  if (realSupabase) {
+    try {
+      const res = await realSupabase.from('rsvps').insert([rsvpData]);
+      if (!res.error) savedOk = true;
+    } catch(e){}
+  }
+
+  const stored = getStoredRsvps();
+  stored.unshift({ id: 'rsvp-' + Date.now(), created_at: new Date().toISOString(), ...rsvpData });
+  saveStoredRsvps(stored);
+  savedOk = true;
+
+  if (!savedOk){
     msgOut.textContent = 'Não deu pra enviar agora. Tenta de novo em instantes.';
     msgOut.className = 'form-msg err';
   } else {
@@ -1223,15 +1226,24 @@ document.getElementById('rsvpSubmit').addEventListener('click', async () => {
     msgOut.className = 'form-msg ok';
     nameEl.value = '';
     document.getElementById('rsvpMsg').value = '';
-    loadRsvpCount();
+    await loadRsvpCount();
   }
   submitBtn.disabled = false;
 });
 
 async function loadRsvpCount(){
   const countEl = document.getElementById('rsvpCount');
-  const { data, error } = await supabase.from('rsvps').select('guests').eq('attending', true);
-  if (error || !data || data.length === 0){
+  let data = null;
+  if (realSupabase) {
+    try {
+      const res = await realSupabase.from('rsvps').select('guests').eq('attending', true);
+      if (!res.error && res.data) data = res.data;
+    } catch(e){}
+  }
+  if (!data || data.length === 0){
+    data = getStoredRsvps().filter(r => r.attending);
+  }
+  if (!data || data.length === 0){
     countEl.textContent = 'Seja a primeira pessoa a confirmar!';
     return;
   }
@@ -1259,53 +1271,49 @@ document.querySelectorAll('.admin-tab').forEach(tab => {
     tab.classList.add('active');
     const map = { presentes: 'paneGifts', confirmacoes: 'paneRsvps', pedidos: 'paneOrders' };
     document.getElementById(map[tab.dataset.tab]).classList.add('active');
+    if (tab.dataset.tab === 'pedidos' || tab.dataset.tab === 'confirmacoes') {
+      renderAdmin();
+    }
   });
 });
 
 async function callAdminGifts(action, gift){
-  const payload = JSON.stringify({ code: adminCode, action, gift });
-  let res;
-  let data;
-  try {
-    res = await fetch(`${FUNCTIONS_URL}/admin-gifts`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      },
-      body: payload,
-    });
-    if (res.ok) {
-      data = await res.json();
-      return data;
-    }
-  } catch (e) {
-    // try fallback below
-  }
-
-  // Fallback to local server API or browser local storage (for Netlify/Vercel static deployments)
-  try {
-    const fallbackRes = await fetch('/api/admin-gifts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: payload,
-    });
-    if (fallbackRes.ok) {
-      return await fallbackRes.json();
-    }
-  } catch(e){}
-
-  // Local browser admin fallback if deployed statically without server
   const cleanInput = (adminCode || '').trim();
   if (cleanInput !== 'casamento2026' && cleanInput !== 'Gutoelement1!') {
     throw new Error('Código incorreto.');
   }
 
-  let gifts = getStoredGifts();
+  let gifts = [];
+  if (realSupabase) {
+    try {
+      const res = await realSupabase.from('gifts').select('*').order('sort_order');
+      if (!res.error && res.data) gifts = res.data;
+    } catch(e){}
+  }
+  if (!gifts || gifts.length === 0) {
+    gifts = getStoredGifts();
+  }
+
+  if (action === 'list') {
+    saveStoredGifts(gifts);
+    return { gifts };
+  }
+
   if (action === 'create' && gift) {
+    const slugId = gift.name.toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, '-')
+      .slice(0, 35) || ('gift-' + Date.now());
+    
+    // Evita ID duplicado
+    let finalId = slugId;
+    let counter = 1;
+    while (gifts.some(g => g.id === finalId)) {
+      finalId = `${slugId}-${counter++}`;
+    }
+
     const newG = {
-      id: gift.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40) || ('gift-' + Date.now()),
+      id: finalId,
       name: gift.name,
       description: gift.description || '',
       price_cents: Number(gift.price_cents),
@@ -1313,24 +1321,63 @@ async function callAdminGifts(action, gift){
       active: gift.active ?? true,
       sort_order: Number(gift.sort_order) || (gifts.length + 1)
     };
+
+    if (realSupabase) {
+      try {
+        await realSupabase.from('gifts').insert([newG]);
+      } catch(e){
+        console.warn('Supabase gift create:', e);
+      }
+    }
+
     gifts.push(newG);
     saveStoredGifts(gifts);
+    await loadGifts();
     return { gifts };
   }
+
   if (action === 'update' && gift && gift.id) {
+    const updateData = {
+      name: gift.name,
+      description: gift.description || '',
+      price_cents: Number(gift.price_cents),
+      unique_item: gift.unique_item ?? true,
+      active: gift.active ?? true,
+      sort_order: Number(gift.sort_order) || 0
+    };
+
+    if (realSupabase) {
+      try {
+        await realSupabase.from('gifts').update(updateData).eq('id', gift.id);
+      } catch(e){
+        console.warn('Supabase gift update:', e);
+      }
+    }
+
     const idx = gifts.findIndex(g => g.id === gift.id);
     if (idx !== -1) {
-      gifts[idx] = { ...gifts[idx], ...gift };
-      if (gift.price_cents) gifts[idx].price_cents = Number(gift.price_cents);
+      gifts[idx] = { ...gifts[idx], ...updateData };
       saveStoredGifts(gifts);
     }
+    await loadGifts();
     return { gifts };
   }
+
   if (action === 'delete' && gift && gift.id) {
+    if (realSupabase) {
+      try {
+        await realSupabase.from('gifts').delete().eq('id', gift.id);
+      } catch(e){
+        console.warn('Supabase gift delete:', e);
+      }
+    }
+
     gifts = gifts.filter(g => g.id !== gift.id);
     saveStoredGifts(gifts);
+    await loadGifts();
     return { gifts };
   }
+
   return { gifts };
 }
 
@@ -1418,7 +1465,7 @@ function renderGiftForm(existing){
     };
     try{
       const data = await callAdminGifts(existing ? 'update' : 'create', payload);
-      msg.textContent = existing ? 'Presente atualizado.' : 'Presente adicionado.';
+      msg.textContent = existing ? 'Presente atualizado com sucesso.' : 'Presente adicionado com sucesso.';
       msg.className = 'form-msg ok';
       renderGiftManageList(data.gifts);
       renderGiftForm();
@@ -1443,7 +1490,7 @@ function renderGiftManageList(gifts){
     <div class="gift-admin-row ${g.active ? '' : 'inactive'}">
       <div class="info">
         <b>${escapeHtml(g.name)} — ${formatBRL(g.price_cents)}</b>
-        <span>${g.unique_item ? 'Único' : 'Várias contribuições'} · ${g.active ? 'visível' : 'oculto'}</span>
+        <span>${g.unique_item ? 'Único' : 'Várias contribuições'} · ${g.active ? 'visível' : 'oculto'} · ordem: ${g.sort_order ?? 0}</span>
       </div>
       <div class="row-actions">
         <button data-edit="${g.id}">Editar</button>
@@ -1475,40 +1522,70 @@ function renderGiftManageList(gifts){
 async function renderAdmin(){
   const rsvpList = document.getElementById('adminRsvpList');
   const giftList = document.getElementById('adminGiftList');
-  rsvpList.innerHTML = 'Carregando...';
-  giftList.innerHTML = 'Carregando...';
+  rsvpList.innerHTML = 'Carregando confirmações...';
+  giftList.innerHTML = 'Carregando pedidos...';
 
-  const { data: rsvps } = await supabase.from('rsvps').select('*').order('created_at', { ascending: false });
+  // RSVPs
+  let rsvps = [];
+  if (realSupabase) {
+    try {
+      const { data } = await realSupabase.from('rsvps').select('*').order('created_at', { ascending: false });
+      if (data) rsvps = data;
+    } catch(e){}
+  }
+  if (!rsvps || rsvps.length === 0) {
+    rsvps = getStoredRsvps();
+  }
+
   rsvpList.innerHTML = (!rsvps || rsvps.length === 0)
     ? '<p class="admin-row">Ninguém confirmou ainda.</p>'
     : rsvps.map(d => `
         <div class="admin-row">
-          <b>${escapeHtml(d.name)} — ${d.attending ? 'vai (' + d.guests + ')' : 'não vai'}</b>
-          <span>${d.message ? escapeHtml(d.message) : ''}</span>
+          <b>${escapeHtml(d.name)} — ${d.attending ? 'vai (' + (d.guests || 1) + ' pessoas)' : 'não vai'}</b>
+          ${d.message ? `<span style="display:block; font-size:12px; color:var(--ink-soft); margin-top:2px;">"${escapeHtml(d.message)}"</span>` : ''}
         </div>
       `).join('');
 
-  const { data: orders } = await supabase
-    .from('gift_orders')
-    .select('*, gifts(name)')
-    .order('created_at', { ascending: false });
+  // Pedidos
+  let orders = [];
+  let catalogGifts = [];
+
+  if (realSupabase) {
+    try {
+      const [oRes, gRes] = await Promise.all([
+        realSupabase.from('gift_orders').select('*').order('created_at', { ascending: false }),
+        realSupabase.from('gifts').select('*')
+      ]);
+      if (oRes.data) orders = oRes.data;
+      if (gRes.data) catalogGifts = gRes.data;
+    } catch(e){}
+  }
+
+  if (!orders || orders.length === 0) {
+    orders = getStoredOrders();
+  }
+  if (!catalogGifts || catalogGifts.length === 0) {
+    catalogGifts = getStoredGifts();
+  }
 
   giftList.innerHTML = (!orders || orders.length === 0)
-    ? '<p class="admin-row">Nenhum pedido ainda.</p>'
+    ? '<p class="admin-row">Nenhum presente foi escolhido ou pago ainda.</p>'
     : orders.map(o => {
+        const giftObj = catalogGifts.find(g => g.id === o.gift_id);
+        const giftName = giftObj ? giftObj.name : (o.gift_id || 'Presente');
         const methodLabel = o.payment_method === 'pix_direct' ? 'Pix Direto' 
-          : o.payment_method === 'stripe' ? 'Stripe (Cartão)' 
-          : (o.payment_method || 'Pix / Cartão');
+          : o.payment_method === 'card' ? 'Cartão / Pix' 
+          : (o.payment_method || 'Pix');
         return `
-        <div class="admin-row" style="display:flex; flex-direction:column; gap:4px;">
+        <div class="admin-row" style="display:flex; flex-direction:column; gap:4px; margin-bottom:8px;">
           <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
-            <b>${escapeHtml(o.gifts?.name || o.gift_id)} — ${formatBRL(o.amount_cents)}</b>
+            <b>${escapeHtml(giftName)} — ${formatBRL(o.amount_cents)}</b>
             <div>
               <span style="font-size:11px; background:var(--cream-deep); border:1px solid var(--line); border-radius:4px; padding:2px 6px; margin-right:4px;">${escapeHtml(methodLabel)}</span>
               <span class="status-tag ${o.status}">${o.status === 'approved' ? 'aprovado' : o.status === 'pending' ? 'pendente' : o.status}</span>
             </div>
           </div>
-          <span style="font-size:13px; color:var(--ink);">${escapeHtml(o.buyer_name || 'Convidado')}${o.installments ? ' · ' + o.installments + 'x' : ''}</span>
+          <span style="font-size:13px; color:var(--ink);">${escapeHtml(o.buyer_name || 'Convidado')}</span>
           ${o.buyer_message ? `<span style="font-size:12px; color:var(--ink-soft); font-style:italic; background:var(--cream-deep); padding:4px 8px; border-radius:4px;">"${escapeHtml(o.buyer_message)}"</span>` : ''}
         </div>
       `;

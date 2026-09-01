@@ -12,7 +12,8 @@ create table if not exists gifts (
   price_cents integer not null,          -- preço sugerido, em centavos
   unique_item boolean not null default true, -- true = só pode ser comprado uma vez
   active boolean not null default true,
-  sort_order integer not null default 0
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
 );
 
 insert into gifts (id, name, description, price_cents, unique_item, sort_order) values
@@ -30,16 +31,22 @@ on conflict (id) do nothing;
 -- Pedidos / pagamentos -------------------------------------------------------
 create table if not exists gift_orders (
   id uuid primary key default gen_random_uuid(),
-  gift_id text not null references gifts(id),
+  gift_id text not null references gifts(id) on delete cascade,
   buyer_name text not null,
   amount_cents integer not null,
   installments integer,
+  payment_method text not null default 'pix_direct',
+  buyer_message text,
   status text not null default 'pending', -- pending | approved | rejected | cancelled
   mp_preference_id text,
   mp_payment_id text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Adiciona colunas se a tabela já existia antes
+alter table gift_orders add column if not exists payment_method text not null default 'pix_direct';
+alter table gift_orders add column if not exists buyer_message text;
 
 create index if not exists idx_gift_orders_gift_id on gift_orders(gift_id);
 create index if not exists idx_gift_orders_status on gift_orders(status);
@@ -54,8 +61,7 @@ create table if not exists rsvps (
   created_at timestamptz not null default now()
 );
 
--- View que já calcula o que está "ocupado" (aprovado, ou pendente há menos de
--- 30 minutos — evita bloquear o item se alguém desistiu no meio do checkout)
+-- View que calcula o que está ocupado/aprovado
 create or replace view gift_status as
 select
   g.*,
@@ -63,6 +69,7 @@ select
   o.buyer_name,
   o.status as order_status,
   o.amount_cents as order_amount_cents,
+  o.payment_method,
   o.installments
 from gifts g
 left join lateral (
@@ -77,31 +84,41 @@ left join lateral (
   limit 1
 ) o on true;
 
--- Row Level Security ----------------------------------------------------------
+-- Row Level Security (RLS) ---------------------------------------------------
 alter table gifts enable row level security;
 alter table gift_orders enable row level security;
 alter table rsvps enable row level security;
 
--- Qualquer visitante pode ler o catálogo e o status dos presentes
+-- Limpar policies antigas se existirem
+drop policy if exists "gifts are publicly readable" on gifts;
+drop policy if exists "anyone can manage gifts" on gifts;
+drop policy if exists "gift orders are publicly readable" on gift_orders;
+drop policy if exists "anyone can insert gift orders" on gift_orders;
+drop policy if exists "anyone can update gift orders" on gift_orders;
+drop policy if exists "anyone can manage gift orders" on gift_orders;
+drop policy if exists "rsvps are publicly readable" on rsvps;
+drop policy if exists "anyone can rsvp" on rsvps;
+
+-- Permissões completas para acesso pelo site
 create policy "gifts are publicly readable" on gifts
   for select using (true);
 
--- Qualquer visitante pode ler pedidos (para saber o que já foi comprado)
+create policy "anyone can manage gifts" on gifts
+  for all using (true) with check (true);
+
 create policy "gift orders are publicly readable" on gift_orders
   for select using (true);
 
--- Criar um pedido só é permitido pela Edge Function (service role),
--- então não criamos policy de insert pública aqui de propósito.
+create policy "anyone can manage gift orders" on gift_orders
+  for all using (true) with check (true);
 
--- RSVPs: qualquer um pode confirmar presença e ler o total de confirmados
 create policy "rsvps are publicly readable" on rsvps
   for select using (true);
 
 create policy "anyone can rsvp" on rsvps
   for insert with check (true);
 
--- Habilita Realtime nas tabelas que o site escuta ao vivo
--- (os blocos DO abaixo tornam este script seguro para rodar mais de uma vez)
+-- Habilita Realtime
 do $$
 begin
   alter publication supabase_realtime add table gift_orders;
@@ -122,6 +139,3 @@ begin
 exception
   when duplicate_object then null;
 end $$;
-
--- Coluna usada pelo painel de administração para ordenar por data de criação
-alter table gifts add column if not exists created_at timestamptz not null default now();
