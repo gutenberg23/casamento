@@ -101,7 +101,22 @@
       "created_at": "2026-09-01T19:44:47.844Z"
     }
   ],
-  "giftOrders": [],
+  "giftOrders": [
+    {
+      "id": "order_1788300790835_dxy0r",
+      "gift_id": "panelas",
+      "buyer_name": "Teste Convidado",
+      "buyer_message": null,
+      "amount_cents": 35000,
+      "payment_method": "stripe",
+      "status": "pending",
+      "mp_preference_id": null,
+      "stripe_session_id": "cs_live_a1qutjiqIKtaHYDjLdjy94YjY1ZtgI0M9YfYiFPzQ7Ml1tzMkd69OAppr7",
+      "asaas_payment_id": null,
+      "created_at": "2026-09-01T22:13:10.835Z",
+      "updated_at": "2026-09-01T22:13:10.835Z"
+    }
+  ],
   "rsvps": [
     {
       "id": "sample-1",

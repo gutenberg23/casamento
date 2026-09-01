@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import path from "path";
@@ -12,6 +13,32 @@ const PORT = 3000;
 
 app.use(cors());
 app.use(express.json());
+
+function getStripeSecretKey() {
+  const possibleKeys = [
+    process.env.STRIPE_SECRET_KEY,
+    process.env.STRIPE_KEY,
+    process.env.STRIPE_API_KEY,
+    process.env.STRIPE_SECRET,
+    process.env.STRIPE_SK,
+    process.env.STRIPE_PRIVATE_KEY,
+    process.env.VITE_STRIPE_SECRET_KEY
+  ];
+
+  for (let key of possibleKeys) {
+    if (key && typeof key === "string") {
+      let cleaned = key.trim();
+      // Remove any surrounding single/double quotes if user entered them in secrets UI
+      if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+        cleaned = cleaned.slice(1, -1).trim();
+      }
+      if (cleaned.length > 0) {
+        return cleaned;
+      }
+    }
+  }
+  return null;
+}
 
 // In-memory + File Persistent data store
 const defaultGifts = [
@@ -303,10 +330,10 @@ app.post(["/api/create-payment", "/functions/v1/create-payment"], async (req, re
 
     // 2. Stripe Checkout (Cartão de Crédito)
     if (selectedMethod === "card" || selectedMethod === "stripe") {
-      const stripeKey = process.env.STRIPE_SECRET_KEY;
+      const stripeKey = getStripeSecretKey();
       if (!stripeKey) {
         return res.status(400).json({
-          error: "A chave STRIPE_SECRET_KEY não foi configurada no ambiente. Adicione a chave secreta do Stripe nas configurações (Settings/variáveis de ambiente).",
+          error: "A chave STRIPE_SECRET_KEY não foi detectada no ambiente. Por favor, certifique-se de que a variável STRIPE_SECRET_KEY foi salva nas configurações e reinicie o aplicativo.",
           stripe_missing: true,
         });
       }
@@ -357,6 +384,15 @@ app.post(["/api/create-payment", "/functions/v1/create-payment"], async (req, re
   } catch (err) {
     return res.status(500).json({ error: "Erro inesperado.", detail: String(err) });
   }
+});
+
+// Status de configuração do Stripe
+app.get("/api/stripe-status", (req, res) => {
+  const key = getStripeSecretKey();
+  return res.json({
+    configured: Boolean(key),
+    prefix: key ? `${key.substring(0, 7)}...` : null
+  });
 });
 
 // Confirmação do Pix direto feita pelo convidado
