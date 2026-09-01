@@ -635,9 +635,9 @@ const realSupabase = (isRealSupabase && window.supabase && typeof window.supabas
 const FUNCTIONS_URL = isRealSupabase ? `${SUPABASE_URL}/functions/v1` : `${window.location.origin}/api`;
 
 // Storage local automático caso o site esteja publicado em hospedagem estática (Netlify/Vercel) sem backend configurado
-const LOCAL_STORAGE_KEY_GIFTS = "iasmin_gutenberg_gifts_v1";
-const LOCAL_STORAGE_KEY_RSVPS = "iasmin_gutenberg_rsvps_v1";
-const LOCAL_STORAGE_KEY_ORDERS = "iasmin_gutenberg_orders_v1";
+const LOCAL_STORAGE_KEY_GIFTS = "iasmin_gutenberg_gifts_v2";
+const LOCAL_STORAGE_KEY_RSVPS = "iasmin_gutenberg_rsvps_v2";
+const LOCAL_STORAGE_KEY_ORDERS = "iasmin_gutenberg_orders_v2";
 
 const defaultCatalog = [
   { id: "panelas", name: "Jogo de panelas", description: "Um conjunto bom, dos que duram anos.", price_cents: 35000, unique_item: true, active: true, sort_order: 1 },
@@ -654,7 +654,10 @@ const defaultCatalog = [
 function getStoredGifts() {
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY_GIFTS);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
   } catch(e){}
   return defaultCatalog;
 }
@@ -687,6 +690,75 @@ function saveStoredOrders(list) {
   try { localStorage.setItem(LOCAL_STORAGE_KEY_ORDERS, JSON.stringify(list)); } catch(e){}
 }
 
+// Consolidador unificado de presentes e pedidos entre Backend, Supabase e LocalStorage
+async function fetchAllGiftsAndOrders() {
+  let serverGifts = null;
+  let serverOrders = null;
+  let supabaseGifts = null;
+  let supabaseOrders = null;
+
+  // 1. Tenta API do servidor local (/api/gifts e /api/orders)
+  try {
+    const [gRes, oRes] = await Promise.all([
+      fetch('/api/gifts'),
+      fetch('/api/orders')
+    ]);
+    if (gRes.ok) serverGifts = await gRes.json();
+    if (oRes.ok) serverOrders = await oRes.json();
+  } catch (e) {}
+
+  // 2. Tenta Supabase (se configurado)
+  if (realSupabase) {
+    try {
+      const [gRes, oRes] = await Promise.all([
+        realSupabase.from('gifts').select('*').order('sort_order'),
+        realSupabase.from('gift_orders').select('*').order('created_at', { ascending: false })
+      ]);
+      if (!gRes.error && gRes.data && gRes.data.length > 0) supabaseGifts = gRes.data;
+      if (!oRes.error && oRes.data) supabaseOrders = oRes.data;
+    } catch (e) {}
+  }
+
+  // 3. Obtém dados do LocalStorage
+  const localGifts = getStoredGifts();
+  const localOrders = getStoredOrders();
+
+  // Consolidação de Presentes:
+  const map = new Map();
+  // Começa com a lista padrão ou do servidor
+  const sourceList = (serverGifts && serverGifts.length > 0)
+    ? serverGifts
+    : (supabaseGifts && supabaseGifts.length > 0)
+      ? supabaseGifts
+      : defaultCatalog;
+
+  sourceList.forEach(g => map.set(g.id, { ...g }));
+
+  // Sobrepõe com quaisquer edições ou novos presentes salvos localmente
+  localGifts.forEach(g => {
+    if (!map.has(g.id)) {
+      map.set(g.id, { ...g });
+    } else {
+      const cur = map.get(g.id);
+      map.set(g.id, { ...cur, ...g });
+    }
+  });
+
+  const consolidatedGifts = Array.from(map.values()).sort((a,b) => (a.sort_order||0) - (b.sort_order||0));
+  saveStoredGifts(consolidatedGifts);
+
+  // Consolidação de Pedidos:
+  const ordersMap = new Map();
+  (supabaseOrders || []).forEach(o => ordersMap.set(o.id, o));
+  (serverOrders || []).forEach(o => ordersMap.set(o.id, o));
+  localOrders.forEach(o => ordersMap.set(o.id, o));
+
+  const consolidatedOrders = Array.from(ordersMap.values()).sort((a,b) => new Date(b.created_at||0) - new Date(a.created_at||0));
+  saveStoredOrders(consolidatedOrders);
+
+  return { gifts: consolidatedGifts, orders: consolidatedOrders };
+}
+
 const supabase = {
   from(table) {
     if (realSupabase) {
@@ -699,15 +771,7 @@ const supabase = {
             return (async () => {
               try {
                 if (table === 'gift_status' || table === 'gifts') {
-                  try {
-                    const res = await fetch('/api/gifts');
-                    if (res.ok) {
-                      const data = await res.json();
-                      return { data, error: null };
-                    }
-                  } catch(e){}
-                  const gifts = getStoredGifts();
-                  const orders = getStoredOrders();
+                  const { gifts, orders } = await fetchAllGiftsAndOrders();
                   const merged = gifts.filter(g => g.active !== false).map(g => {
                     const order = orders.find(o => o.gift_id === g.id && o.status === 'approved');
                     return {
@@ -731,14 +795,8 @@ const supabase = {
                   return { data: getStoredRsvps(), error: null };
                 }
                 if (table === 'gift_orders') {
-                  try {
-                    const res = await fetch('/api/orders');
-                    if (res.ok) {
-                      const data = await res.json();
-                      return { data, error: null };
-                    }
-                  } catch(e){}
-                  return { data: getStoredOrders(), error: null };
+                  const { orders } = await fetchAllGiftsAndOrders();
+                  return { data: orders, error: null };
                 }
                 return { data: [], error: null };
               } catch (err) {
@@ -782,7 +840,6 @@ const supabase = {
                 return { error: null };
               }
             } catch(e){}
-            // Fallback localStorage para Netlify
             const rsvps = getStoredRsvps();
             const items = Array.isArray(payload) ? payload : [payload];
             items.forEach(item => {
@@ -864,27 +921,7 @@ async function loadGifts(){
   const grid = document.getElementById('giftGrid');
   grid.innerHTML = '<p style="color:var(--ink-soft); font-size:14px;">Carregando presentes...</p>';
 
-  let gifts = [];
-  let orders = [];
-
-  if (realSupabase) {
-    try {
-      const [gRes, oRes] = await Promise.all([
-        realSupabase.from('gifts').select('*').order('sort_order'),
-        realSupabase.from('gift_orders').select('*').order('created_at', { ascending: false })
-      ]);
-      if (!gRes.error && gRes.data && gRes.data.length > 0) gifts = gRes.data;
-      if (!oRes.error && oRes.data) orders = oRes.data;
-    } catch(e){}
-  }
-
-  // Fallback para armazenamento local
-  if (!gifts || gifts.length === 0){
-    gifts = getStoredGifts();
-  }
-  if (!orders || orders.length === 0){
-    orders = getStoredOrders();
-  }
+  const { gifts, orders } = await fetchAllGiftsAndOrders();
 
   // Mescla pedidos aprovados com os presentes para garantir que itens comprados fiquem indisponíveis
   const mergedGifts = gifts.filter(g => g.active !== false).map(g => {
@@ -929,7 +966,7 @@ async function loadGifts(){
       ${statusHtml}
       <h3>${escapeHtml(gift.name)}</h3>
       <p class="price">${formatBRL(gift.price_cents)}</p>
-      <p class="desc">${escapeHtml(gift.description)}</p>
+      <p class="desc">${escapeHtml(gift.description || '')}</p>
       <p class="payment-note">Pix ou cartão em até 12x</p>
       ${buttonHtml}
     `;
@@ -1373,19 +1410,33 @@ async function callAdminGifts(action, gift){
     throw new Error('Código incorreto.');
   }
 
-  let gifts = [];
-  if (realSupabase) {
-    try {
-      const res = await realSupabase.from('gifts').select('*').order('sort_order');
-      if (!res.error && res.data) gifts = res.data;
-    } catch(e){}
-  }
-  if (!gifts || gifts.length === 0) {
-    gifts = getStoredGifts();
-  }
+  // 1. Tenta sincronizar com o backend Node.js (/api/admin-gifts)
+  try {
+    const srvRes = await fetch('/api/admin-gifts', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-admin-code': cleanInput
+      },
+      body: JSON.stringify({
+        code: cleanInput,
+        action,
+        gift
+      })
+    });
+    if (srvRes.ok) {
+      const srvData = await srvRes.json();
+      if (srvData && srvData.gifts) {
+        saveStoredGifts(srvData.gifts);
+      }
+    }
+  } catch(e){}
+
+  // 2. Obtém presentes consolidados
+  const { gifts: consolidated } = await fetchAllGiftsAndOrders();
+  let gifts = [...consolidated];
 
   if (action === 'list') {
-    saveStoredGifts(gifts);
     return { gifts };
   }
 
@@ -1409,14 +1460,16 @@ async function callAdminGifts(action, gift){
       price_cents: Number(gift.price_cents),
       unique_item: gift.unique_item ?? true,
       active: gift.active ?? true,
-      sort_order: Number(gift.sort_order) || (gifts.length + 1)
+      sort_order: Number(gift.sort_order) || (gifts.length + 1),
+      created_at: new Date().toISOString()
     };
 
     if (realSupabase) {
       try {
-        await realSupabase.from('gifts').insert([newG]);
+        const { error } = await realSupabase.from('gifts').insert([newG]);
+        if (error) console.warn('Aviso Supabase insert:', error.message);
       } catch(e){
-        console.warn('Supabase gift create:', e);
+        console.warn('Erro Supabase gift create:', e);
       }
     }
 
@@ -1438,9 +1491,10 @@ async function callAdminGifts(action, gift){
 
     if (realSupabase) {
       try {
-        await realSupabase.from('gifts').update(updateData).eq('id', gift.id);
+        const { error } = await realSupabase.from('gifts').update(updateData).eq('id', gift.id);
+        if (error) console.warn('Aviso Supabase update:', error.message);
       } catch(e){
-        console.warn('Supabase gift update:', e);
+        console.warn('Erro Supabase gift update:', e);
       }
     }
 
@@ -1456,7 +1510,8 @@ async function callAdminGifts(action, gift){
   if (action === 'delete' && gift && gift.id) {
     if (realSupabase) {
       try {
-        await realSupabase.from('gifts').delete().eq('id', gift.id);
+        const { error } = await realSupabase.from('gifts').delete().eq('id', gift.id);
+        if (error) console.warn('Aviso Supabase delete:', error.message);
       } catch(e){
         console.warn('Supabase gift delete:', e);
       }

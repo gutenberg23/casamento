@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -12,7 +13,7 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json());
 
-// In-memory data store (fallback if Supabase is not connected)
+// In-memory + File Persistent data store
 const defaultGifts = [
   { id: "panelas", name: "Jogo de panelas", description: "Um conjunto bom, dos que duram anos.", price_cents: 35000, unique_item: true, active: true, sort_order: 1, created_at: new Date().toISOString() },
   { id: "airfryer", name: "Air fryer", description: "Pra facilitar o dia a dia na cozinha nova.", price_cents: 45000, unique_item: true, active: true, sort_order: 2, created_at: new Date().toISOString() },
@@ -25,9 +26,45 @@ const defaultGifts = [
   { id: "luademel", name: "Cota lua de mel", description: "Contribua com o valor que quiser pra nossa viagem.", price_cents: 10000, unique_item: false, active: true, sort_order: 9, created_at: new Date().toISOString() },
 ];
 
-let gifts = [...defaultGifts];
-let giftOrders = [];
-let rsvps = [
+const DATA_DIR = path.join(__dirname, "data");
+const STORE_FILE = path.join(DATA_DIR, "store.json");
+
+function loadStore() {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    if (fs.existsSync(STORE_FILE)) {
+      const raw = fs.readFileSync(STORE_FILE, "utf-8");
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    console.error("Erro ao carregar store.json:", e);
+  }
+  return {
+    gifts: defaultGifts,
+    giftOrders: [],
+    rsvps: [
+      { id: "sample-1", name: "Família Silva", attending: true, guests: 2, message: "Parabéns ao casal lindo! Nos vemos lá!", created_at: new Date(Date.now() - 3600000 * 24).toISOString() }
+    ]
+  };
+}
+
+function saveStore() {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(STORE_FILE, JSON.stringify({ gifts, giftOrders, rsvps }, null, 2), "utf-8");
+  } catch (e) {
+    console.error("Erro ao salvar store.json:", e);
+  }
+}
+
+const initialStore = loadStore();
+let gifts = initialStore.gifts || [...defaultGifts];
+let giftOrders = initialStore.giftOrders || [];
+let rsvps = initialStore.rsvps || [
   { id: "sample-1", name: "Família Silva", attending: true, guests: 2, message: "Parabéns ao casal lindo! Nos vemos lá!", created_at: new Date(Date.now() - 3600000 * 24).toISOString() }
 ];
 
@@ -175,6 +212,7 @@ app.post(["/api/rsvps", "/rest/v1/rsvps"], (req, res) => {
   };
 
   rsvps.push(newRsvp);
+  saveStore();
   res.status(201).json(newRsvp);
 });
 
@@ -250,6 +288,7 @@ app.post(["/api/create-payment", "/functions/v1/create-payment"], async (req, re
       const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=10&data=${encodeURIComponent(pixCode)}`;
 
       giftOrders.push(order);
+      saveStore();
       return res.json({
         provider: "pix_direct",
         order_id: order.id,
@@ -310,6 +349,7 @@ app.post(["/api/create-payment", "/functions/v1/create-payment"], async (req, re
       order.stripe_session_id = stripeData.id;
       order.payment_method = "stripe";
       giftOrders.push(order);
+      saveStore();
       return res.json({ provider: "stripe", init_point: stripeData.url, order_id: order.id });
     }
 
@@ -333,6 +373,7 @@ app.post("/api/confirm-pix-order", (req, res) => {
 
   order.status = "approved";
   order.updated_at = new Date().toISOString();
+  saveStore();
 
   return res.json({ success: true, order });
 });
@@ -349,6 +390,7 @@ app.post("/api/stripe-webhook", (req, res) => {
         if (order) {
           order.status = "approved";
           order.updated_at = new Date().toISOString();
+          saveStore();
         }
       }
     }
@@ -395,6 +437,7 @@ app.all(["/api/admin-gifts", "/functions/v1/admin-gifts"], (req, res) => {
       };
 
       gifts.push(newGift);
+      saveStore();
       const sorted = [...gifts].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
       return res.json({ gifts: sorted });
     }
@@ -406,6 +449,7 @@ app.all(["/api/admin-gifts", "/functions/v1/admin-gifts"], (req, res) => {
 
       gifts[idx] = { ...gifts[idx], ...gift };
       if (gift.price_cents) gifts[idx].price_cents = Number(gift.price_cents);
+      saveStore();
       const sorted = [...gifts].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
       return res.json({ gifts: sorted });
     }
@@ -413,6 +457,7 @@ app.all(["/api/admin-gifts", "/functions/v1/admin-gifts"], (req, res) => {
     if (action === "delete") {
       if (!gift?.id) return res.status(400).json({ error: "Presente não identificado." });
       gifts = gifts.filter(g => g.id !== gift.id);
+      saveStore();
       const sorted = [...gifts].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
       return res.json({ gifts: sorted });
     }
