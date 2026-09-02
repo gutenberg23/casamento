@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Gift, GiftOrder, Rsvp } from '../types';
 import { formatBRL, formatDateBR, exportToCSV, cleanPhoneBR } from '../utils/formatters';
 import { adminGiftsAction, checkStripeStatus, adminUpdateOrderStatus } from '../services/api';
-import { X, Lock, Gift as GiftIcon, Users, ShoppingBag, Settings, Plus, Edit2, Trash2, Download, Check, AlertCircle, Phone, MessageSquare, ExternalLink, Clock } from 'lucide-react';
+import { X, Lock, Gift as GiftIcon, Users, ShoppingBag, Settings, Plus, Edit2, Trash2, Download, Check, AlertCircle, Phone, MessageSquare, ExternalLink, Clock, EyeOff } from 'lucide-react';
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -27,6 +27,20 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [adminCodeInput, setAdminCodeInput] = useState('');
   const [authError, setAuthError] = useState('');
   const [activeTab, setActiveTab] = useState<'gifts' | 'rsvps' | 'orders' | 'settings'>('gifts');
+  const [adminGifts, setAdminGifts] = useState<Gift[]>(gifts || []);
+
+  // Sync gifts when prop changes or on open
+  useEffect(() => {
+    if (gifts && gifts.length > 0) {
+      setAdminGifts(prev => {
+        // Keep inactive items if we already had them in adminGifts
+        const activeIds = new Set(gifts.map(g => g.id));
+        const keptInactives = prev.filter(p => p.active === false && !activeIds.has(p.id));
+        const merged = [...gifts, ...keptInactives];
+        return merged.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      });
+    }
+  }, [gifts]);
 
   // Gift Form state
   const [editingGift, setEditingGift] = useState<Partial<Gift> | null>(null);
@@ -52,7 +66,10 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     e.preventDefault();
     setAuthError('');
     try {
-      await adminGiftsAction(adminCodeInput, 'list');
+      const list = await adminGiftsAction(adminCodeInput, 'list');
+      if (Array.isArray(list) && list.length > 0) {
+        setAdminGifts(list);
+      }
       setIsAuthenticated(true);
       checkStripeStatus().then(setStripeDiagnostic);
     } catch (err: any) {
@@ -78,7 +95,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       setGiftFormCategory('Casa');
       setGiftFormUnique(true);
       setGiftFormActive(true);
-      setGiftFormSort(String(gifts.length + 1));
+      setGiftFormSort(String((adminGifts.length || gifts.length) + 1));
     }
     setGiftFormError('');
     setGiftFormSuccess('');
@@ -108,7 +125,10 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       };
 
       const action = editingGift?.id ? 'update' : 'create';
-      await adminGiftsAction(adminCodeInput, action, payload);
+      const updatedGifts = await adminGiftsAction(adminCodeInput, action, payload);
+      if (Array.isArray(updatedGifts) && updatedGifts.length > 0) {
+        setAdminGifts(updatedGifts);
+      }
       setGiftFormSuccess(editingGift?.id ? 'Presente atualizado com sucesso!' : 'Presente adicionado com sucesso!');
       setEditingGift(null);
       onRefreshData();
@@ -123,7 +143,10 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     if (!confirm('Deseja realmente remover este presente do catálogo?')) return;
     setLoadingAction(true);
     try {
-      await adminGiftsAction(adminCodeInput, 'delete', { id });
+      const updatedGifts = await adminGiftsAction(adminCodeInput, 'delete', { id });
+      if (Array.isArray(updatedGifts)) {
+        setAdminGifts(updatedGifts);
+      }
       onRefreshData();
     } catch (err: any) {
       alert(err.message || 'Erro ao excluir presente.');
@@ -452,21 +475,27 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
                   {/* Gifts List */}
                   <div className="space-y-2">
-                    {gifts.map(g => (
+                    {(adminGifts.length > 0 ? adminGifts : gifts).map(g => (
                       <div
                         key={g.id}
                         className={`p-3.5 rounded-md border flex items-center justify-between gap-3 ${
                           g.active === false
-                            ? 'bg-[#FCF9F3]/60 border-[#3A2E22]/10 opacity-60'
+                            ? 'bg-[#FCF9F3]/60 border-[#3A2E22]/10 opacity-70'
                             : 'bg-white border-[#3A2E22]/15'
                         }`}
                       >
                         <div className="flex-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <strong className="text-sm text-[#3A2E22]">{g.name}</strong>
                             <span className="text-xs font-bold text-[#A25A32] font-serif-display">
                               {formatBRL(g.price_cents)}
                             </span>
+                            {g.active === false && (
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 font-semibold flex items-center gap-1">
+                                <EyeOff className="w-2.5 h-2.5" />
+                                Oculto no site
+                              </span>
+                            )}
                             {g.order_status === 'approved' && (
                               <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#C67C4E]/15 text-[#A25A32] font-semibold">
                                 Presenteado ({g.buyer_name || 'Convidado'})

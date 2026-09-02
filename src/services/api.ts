@@ -386,29 +386,35 @@ export async function adminUpdateOrderStatus(
 
 export async function adminGiftsAction(code: string, action: 'list' | 'create' | 'update' | 'delete', gift?: Partial<Gift>): Promise<Gift[]> {
   const cleanCode = code.trim();
-  try {
-    const res = await fetch('/api/admin-gifts', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-admin-code': cleanCode
-      },
-      body: JSON.stringify({ code: cleanCode, action, gift })
-    });
+  const routes = ['/api/admin-gifts', '/.netlify/functions/admin-gifts'];
 
-    if (res.ok) {
-      const data = await res.json();
-      if (data?.gifts) {
-        saveLocalGifts(data.gifts);
-        return data.gifts;
+  for (const route of routes) {
+    try {
+      const res = await fetch(route, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-code': cleanCode
+        },
+        body: JSON.stringify({ code: cleanCode, action, gift })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.gifts && Array.isArray(data.gifts)) {
+          saveLocalGifts(data.gifts);
+          return data.gifts;
+        }
+      } else {
+        const data = await res.json().catch(() => null);
+        if (data?.error && (res.status === 401 || res.status === 403)) {
+          throw new Error(data.error);
+        }
       }
-    } else {
-      const data = await res.json().catch(() => null);
-      if (data?.error) throw new Error(data.error);
-    }
-  } catch (e: any) {
-    if (e.message && e.message.includes('Código')) {
-      throw e;
+    } catch (e: any) {
+      if (e.message && (e.message.includes('Código') || e.message.includes('incorreto') || e.message.includes('Senha'))) {
+        throw e;
+      }
     }
   }
 
@@ -425,8 +431,8 @@ export async function adminGiftsAction(code: string, action: 'list' | 'create' |
       name: gift.name || 'Novo Presente',
       description: gift.description || '',
       price_cents: Number(gift.price_cents) || 10000,
-      unique_item: gift.unique_item ?? true,
-      active: gift.active ?? true,
+      unique_item: gift.unique_item !== false,
+      active: gift.active !== false,
       sort_order: Number(gift.sort_order) || gifts.length + 1,
       category: gift.category || 'Casa'
     };

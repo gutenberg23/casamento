@@ -46,38 +46,60 @@ export async function handler(event, context) {
       
       const newGift = {
         id: slugId,
-        name: gift.name,
-        description: gift.description || "",
+        name: String(gift.name).trim(),
+        description: gift.description ? String(gift.description).trim() : "",
         price_cents: Number(gift.price_cents) || 10000,
-        unique_item: gift.unique_item ?? true,
-        active: gift.active ?? true,
+        category: gift.category || "Casa",
+        unique_item: gift.unique_item !== false,
+        active: gift.active !== false,
         sort_order: Number(gift.sort_order) || 0
       };
 
-      await fetch(`${SUPABASE_URL}/rest/v1/gifts?on_conflict=id`, {
-        method: "POST",
-        headers: { ...sbHeaders, Prefer: "resolution=merge-duplicates,return=representation" },
-        body: JSON.stringify(newGift)
-      });
+      if (SUPABASE_URL && SUPABASE_KEY) {
+        await fetch(`${SUPABASE_URL}/rest/v1/gifts?on_conflict=id`, {
+          method: "POST",
+          headers: { ...sbHeaders, Prefer: "resolution=merge-duplicates,return=representation" },
+          body: JSON.stringify(newGift)
+        }).catch(() => null);
+      }
     }
 
     if (action === "update" && gift && gift.id) {
-      await fetch(`${SUPABASE_URL}/rest/v1/gifts?id=eq.${encodeURIComponent(gift.id)}`, {
-        method: "PATCH",
-        headers: sbHeaders,
-        body: JSON.stringify(gift)
-      });
+      const updatePayload = {
+        name: gift.name,
+        description: gift.description,
+        price_cents: Number(gift.price_cents),
+        category: gift.category || "Casa",
+        unique_item: gift.unique_item !== false,
+        active: gift.active !== false,
+        sort_order: Number(gift.sort_order) || 0
+      };
+
+      if (SUPABASE_URL && SUPABASE_KEY) {
+        await fetch(`${SUPABASE_URL}/rest/v1/gifts?id=eq.${encodeURIComponent(gift.id)}`, {
+          method: "PATCH",
+          headers: sbHeaders,
+          body: JSON.stringify(updatePayload)
+        }).catch(() => null);
+      }
     }
 
     if (action === "delete" && gift && gift.id) {
-      await fetch(`${SUPABASE_URL}/rest/v1/gifts?id=eq.${encodeURIComponent(gift.id)}`, {
-        method: "DELETE",
-        headers: sbHeaders
-      });
+      if (SUPABASE_URL && SUPABASE_KEY) {
+        await fetch(`${SUPABASE_URL}/rest/v1/gifts?id=eq.${encodeURIComponent(gift.id)}`, {
+          method: "DELETE",
+          headers: sbHeaders
+        }).catch(() => null);
+      }
     }
 
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/gifts?select=*&order=sort_order`, { headers: sbHeaders });
-    const gifts = await res.json();
+    let gifts = [];
+    if (SUPABASE_URL && SUPABASE_KEY) {
+      try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/gifts?select=*&order=sort_order`, { headers: sbHeaders });
+        gifts = await res.json();
+      } catch (e) {}
+    }
 
     return {
       statusCode: 200,

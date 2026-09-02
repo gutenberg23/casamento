@@ -867,12 +867,12 @@ app.all(["/api/admin-gifts", "/functions/v1/admin-gifts"], async (req, res) => {
 
       const newGift = {
         id,
-        name: gift.name,
-        description: gift.description || "",
-        price_cents: Number(gift.price_cents),
-        category: gift.category || "Casa",
-        unique_item: gift.unique_item ?? true,
-        active: gift.active ?? true,
+        name: String(gift.name).trim(),
+        description: gift.description ? String(gift.description).trim() : "",
+        price_cents: Number(gift.price_cents) || 10000,
+        category: gift.category ? String(gift.category) : "Casa",
+        unique_item: gift.unique_item !== false,
+        active: gift.active !== false,
         sort_order: Number(gift.sort_order) || (gifts.length + 1),
         created_at: new Date().toISOString(),
       };
@@ -881,7 +881,7 @@ app.all(["/api/admin-gifts", "/functions/v1/admin-gifts"], async (req, res) => {
       saveStore();
       await pushGiftToSupabase("create", newGift);
       const sorted = [...gifts].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-      return res.json({ gifts: sorted });
+      return res.json({ success: true, gifts: sorted });
     }
 
     if (action === "update") {
@@ -889,12 +889,22 @@ app.all(["/api/admin-gifts", "/functions/v1/admin-gifts"], async (req, res) => {
       const idx = gifts.findIndex(g => g.id === gift.id);
       if (idx === -1) return res.status(404).json({ error: "Presente não encontrado." });
 
-      gifts[idx] = { ...gifts[idx], ...gift };
-      if (gift.price_cents) gifts[idx].price_cents = Number(gift.price_cents);
+      gifts[idx] = {
+        ...gifts[idx],
+        ...gift,
+        name: gift.name !== undefined ? String(gift.name).trim() : gifts[idx].name,
+        description: gift.description !== undefined ? String(gift.description).trim() : (gifts[idx].description || ""),
+        price_cents: gift.price_cents !== undefined ? Number(gift.price_cents) : gifts[idx].price_cents,
+        category: gift.category !== undefined ? String(gift.category) : (gifts[idx].category || "Casa"),
+        unique_item: gift.unique_item !== undefined ? Boolean(gift.unique_item) : (gifts[idx].unique_item !== false),
+        active: gift.active !== undefined ? Boolean(gift.active) : (gifts[idx].active !== false),
+        sort_order: gift.sort_order !== undefined ? (Number(gift.sort_order) || 0) : (gifts[idx].sort_order || 0),
+        updated_at: new Date().toISOString()
+      };
       saveStore();
       await pushGiftToSupabase("update", gifts[idx]);
       const sorted = [...gifts].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-      return res.json({ gifts: sorted });
+      return res.json({ success: true, gifts: sorted });
     }
 
     if (action === "delete") {
@@ -904,7 +914,7 @@ app.all(["/api/admin-gifts", "/functions/v1/admin-gifts"], async (req, res) => {
       saveStore();
       await pushGiftToSupabase("delete", { id: targetId });
       const sorted = [...gifts].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-      return res.json({ gifts: sorted });
+      return res.json({ success: true, gifts: sorted });
     }
 
     return res.status(400).json({ error: "Ação inválida." });
