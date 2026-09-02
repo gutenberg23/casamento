@@ -4,7 +4,7 @@ import { formatBRL } from '../utils/formatters';
 import { generatePixPayload, getPixQrCodeUrl, DEFAULT_PIX_KEY, DEFAULT_PIX_RECEIVER, DEFAULT_PIX_CITY } from '../utils/pix';
 import { createPayment, confirmPixOrder } from '../services/api';
 import confetti from 'canvas-confetti';
-import { X, QrCode, CreditCard, Copy, Check, Heart, ShieldCheck, ArrowLeft, Loader2, Sparkles } from 'lucide-react';
+import { X, QrCode, CreditCard, Copy, Check, Heart, ShieldCheck, ArrowLeft, Loader2, Sparkles, Clock } from 'lucide-react';
 
 interface GiftCheckoutModalProps {
   gift: Gift | null;

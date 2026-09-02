@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Gift, GiftOrder, Rsvp } from '../types';
 import { formatBRL, formatDateBR, exportToCSV, cleanPhoneBR } from '../utils/formatters';
 import { adminGiftsAction, checkStripeStatus, adminUpdateOrderStatus } from '../services/api';
-import { X, Lock, Gift as GiftIcon, Users, ShoppingBag, Settings, Plus, Edit2, Trash2, Download, Check, AlertCircle, Phone, MessageSquare, ExternalLink } from 'lucide-react';
+import { X, Lock, Gift as GiftIcon, Users, ShoppingBag, Settings, Plus, Edit2, Trash2, Download, Check, AlertCircle, Phone, MessageSquare, ExternalLink, Clock } from 'lucide-react';
 
 interface AdminModalProps {
   isOpen: boolean;
