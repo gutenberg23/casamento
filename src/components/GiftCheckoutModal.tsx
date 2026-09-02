@@ -309,7 +309,7 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
                     <CreditCard className="w-4 h-4 text-[#C67C4E]" />
                     <span>Cartão de Crédito</span>
                   </div>
-                  <span className="text-[11px] text-[#7A6A57]">Via Stripe Seguro em até 12x</span>
+                  <span className="text-[11px] text-[#7A6A57]">Parcelamento em até 12x</span>
                 </button>
               </div>
             </div>
@@ -319,7 +319,7 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
               <div className="bg-[#EFE3D0]/60 border border-[#3A2E22]/10 rounded-md p-3.5 mb-6 text-xs text-[#7A6A57] flex items-start gap-2.5">
                 <ShieldCheck className="w-4 h-4 text-[#5C6748] shrink-0 mt-0.5" />
                 <span>
-                  Você será redirecionado para o checkout oficial do <strong>Stripe</strong> com opção de <strong>parcelamento no cartão de crédito</strong> e segurança de ponta a ponta.
+                  Você será redirecionado para o checkout oficial seguro do <strong>Mercado Pago</strong> com opção de <strong>parcelamento em até 12x no cartão de crédito</strong>.
                 </span>
               </div>
             )}
@@ -340,7 +340,7 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
               {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Conectando...</span>
+                  <span>Conectando ao checkout seguro...</span>
                 </>
               ) : paymentMethod === 'pix_direct' ? (
                 <>
@@ -350,7 +350,7 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
               ) : (
                 <>
                   <CreditCard className="w-4 h-4" />
-                  <span>Pagar com Cartão via Stripe</span>
+                  <span>Pagar no Cartão (em até 12x)</span>
                 </>
               )}
             </button>

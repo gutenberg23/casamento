@@ -244,13 +244,32 @@ export async function confirmPixOrder(
   return order;
 }
 
-export async function checkStripeStatus(): Promise<{ configured: boolean; prefix?: string }> {
-  try {
-    const res = await fetch('/api/stripe-status');
-    if (res.ok) {
-      return await res.json();
-    }
-  } catch {}
+export interface PaymentGatewayStatus {
+  configured: boolean;
+  prefix?: string | null;
+  primary_provider?: 'mercadopago' | 'stripe' | null;
+  stripe?: {
+    configured: boolean;
+    prefix?: string | null;
+  };
+  mercadopago?: {
+    configured: boolean;
+    prefix?: string | null;
+    is_test?: boolean;
+    public_key_configured?: boolean;
+  };
+}
+
+export async function checkStripeStatus(): Promise<PaymentGatewayStatus> {
+  const routes = ['/api/payment-status', '/api/stripe-status', '/.netlify/functions/stripe-status'];
+  for (const r of routes) {
+    try {
+      const res = await fetch(r);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {}
+  }
   return { configured: false };
 }
 

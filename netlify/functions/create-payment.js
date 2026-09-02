@@ -12,7 +12,6 @@ function getStripeSecretKey() {
     "SECRET_KEY"
   ];
 
-  // 1. Procura nas variáveis padrão
   for (const k of envKeys) {
     const val = process.env[k];
     if (val && typeof val === "string") {
@@ -24,7 +23,6 @@ function getStripeSecretKey() {
     }
   }
 
-  // 2. Procura de forma insensível a maiúsculas/minúsculas em todo o process.env
   for (const [k, val] of Object.entries(process.env)) {
     if (k.toLowerCase().includes("stripe") && typeof val === "string") {
       let cleaned = val.trim();
@@ -32,6 +30,41 @@ function getStripeSecretKey() {
         cleaned = cleaned.slice(1, -1).trim();
       }
       if (cleaned.startsWith("sk_") || cleaned.startsWith("rk_")) {
+        return cleaned;
+      }
+    }
+  }
+
+  return null;
+}
+
+function getMercadoPagoAccessToken() {
+  const envKeys = [
+    "MERCADO_PAGO_ACCESS_TOKEN",
+    "MERCADOPAGO_ACCESS_TOKEN",
+    "MP_ACCESS_TOKEN",
+    "MERCADO_PAGO_TOKEN",
+    "VITE_MERCADO_PAGO_ACCESS_TOKEN"
+  ];
+
+  for (const k of envKeys) {
+    const val = process.env[k];
+    if (val && typeof val === "string") {
+      let cleaned = val.trim();
+      if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+        cleaned = cleaned.slice(1, -1).trim();
+      }
+      if (cleaned.length > 5) return cleaned;
+    }
+  }
+
+  for (const [k, val] of Object.entries(process.env)) {
+    if (k.toLowerCase().includes("mercadopago") || k.toLowerCase().includes("mercado_pago") || k === "MP_ACCESS_TOKEN") {
+      let cleaned = String(val).trim();
+      if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+        cleaned = cleaned.slice(1, -1).trim();
+      }
+      if (cleaned.startsWith("APP_USR-") || cleaned.startsWith("TEST-")) {
         return cleaned;
       }
     }
@@ -92,13 +125,16 @@ export async function handler(event, context) {
     }
 
     const stripeKey = getStripeSecretKey();
-    if (!stripeKey) {
+    const mpToken = getMercadoPagoAccessToken();
+
+    if (!stripeKey && !mpToken) {
       return {
         statusCode: 400,
         headers,
         body: JSON.stringify({
-          error: "A chave STRIPE_SECRET_KEY não foi encontrada no ambiente do Netlify. Certifique-se de configurar a variável no painel do Netlify (Site configuration > Environment variables) com escopo 'All' ou 'Functions' e disparar um novo deploy (Trigger deploy -> Clear cache and deploy site).",
+          error: "Nem a chave do Mercado Pago (MERCADO_PAGO_ACCESS_TOKEN) nem a do Stripe (STRIPE_SECRET_KEY) foram encontradas no ambiente do Netlify.",
           stripe_missing: true,
+          mercadopago_missing: true,
           env_keys_found: Object.keys(process.env).filter(k => !k.toLowerCase().includes("key") && !k.toLowerCase().includes("secret"))
         })
       };
@@ -138,83 +174,182 @@ export async function handler(event, context) {
       : (amount_cents && Number(amount_cents) >= 1000 ? Number(amount_cents) : Number(gift.price_cents));
 
     const orderId = `order_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-
-    // Registra pedido prévio no Supabase
-    if (SUPABASE_URL && SUPABASE_KEY) {
-      try {
-        await fetch(`${SUPABASE_URL}/rest/v1/gift_orders`, {
-          method: "POST",
-          headers: {
-            apikey: SUPABASE_KEY,
-            Authorization: `Bearer ${SUPABASE_KEY}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            id: orderId,
-            gift_id,
-            buyer_name: buyer_name.trim(),
-            buyer_message: buyer_message ? String(buyer_message).trim() : null,
-            amount_cents: finalAmount,
-            payment_method: "stripe",
-            status: "pending",
-            created_at: new Date().toISOString()
-          })
-        });
-      } catch (e) {}
-    }
-
     const origin = event.headers.origin || event.headers.referer || "https://iasminegutenberg.com.br";
     const cleanOrigin = origin.split("?")[0].replace(/\/$/, "");
 
-    // Cria sessão do Stripe via chamada HTTP direta (compatível nativamente com qualquer runtime sem dependências externas)
-    const stripeParams = new URLSearchParams();
-    stripeParams.append("payment_method_types[]", "card");
-    stripeParams.append("payment_method_options[card][installments][enabled]", "true");
-    stripeParams.append("line_items[0][price_data][currency]", "brl");
-    stripeParams.append("line_items[0][price_data][product_data][name]", `Presente: ${gift.name} — Casamento Iasmin & Gutenberg`);
-    if (gift.description) {
-      stripeParams.append("line_items[0][price_data][product_data][description]", gift.description.substring(0, 200));
-    }
-    stripeParams.append("line_items[0][price_data][unit_amount]", String(finalAmount));
-    stripeParams.append("line_items[0][quantity]", "1");
-    stripeParams.append("mode", "payment");
-    stripeParams.append("client_reference_id", orderId);
-    stripeParams.append("metadata[gift_id]", gift_id);
-    stripeParams.append("metadata[buyer_name]", buyer_name.trim());
-    stripeParams.append("metadata[order_id]", orderId);
-    if (buyer_message) {
-      stripeParams.append("metadata[buyer_message]", String(buyer_message).substring(0, 400));
-    }
-    stripeParams.append("success_url", `${cleanOrigin}?pagamento=sucesso&presente=${encodeURIComponent(gift_id)}&order_id=${encodeURIComponent(orderId)}&session_id={CHECKOUT_SESSION_ID}`);
-    stripeParams.append("cancel_url", `${cleanOrigin}?pagamento=cancelado&presente=${encodeURIComponent(gift_id)}`);
+    // 1. Mercado Pago Checkout Pro (se o método for mercadopago ou se mpToken estiver disponível)
+    const useMercadoPago = payment_method === "mercadopago" || (mpToken && payment_method !== "stripe");
 
-    const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${stripeKey}`,
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
-      body: stripeParams.toString()
-    });
+    if (useMercadoPago && mpToken) {
+      // Registra pedido prévio no Supabase
+      if (SUPABASE_URL && SUPABASE_KEY) {
+        try {
+          await fetch(`${SUPABASE_URL}/rest/v1/gift_orders`, {
+            method: "POST",
+            headers: {
+              apikey: SUPABASE_KEY,
+              Authorization: `Bearer ${SUPABASE_KEY}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              id: orderId,
+              gift_id,
+              buyer_name: buyer_name.trim(),
+              buyer_message: buyer_message ? String(buyer_message).trim() : null,
+              amount_cents: finalAmount,
+              payment_method: "mercadopago",
+              status: "pending",
+              created_at: new Date().toISOString()
+            })
+          });
+        } catch (e) {}
+      }
 
-    const stripeData = await stripeRes.json();
-    if (!stripeRes.ok) {
-      const msg = stripeData.error?.message || "Erro retornado pela API do Stripe.";
+      const mpBody = {
+        items: [
+          {
+            id: gift.id,
+            title: `Presente: ${gift.name} — Casamento Iasmin & Gutenberg`,
+            description: (gift.description || "Presente de casamento para Iasmin e Gutenberg").substring(0, 200),
+            quantity: 1,
+            unit_price: Number((finalAmount / 100).toFixed(2)),
+            currency_id: "BRL"
+          }
+        ],
+        payer: {
+          name: buyer_name.trim()
+        },
+        external_reference: orderId,
+        metadata: {
+          gift_id: gift_id,
+          order_id: orderId,
+          buyer_name: buyer_name.trim(),
+          buyer_message: buyer_message ? String(buyer_message).trim() : ""
+        },
+        payment_methods: {
+          installments: 12
+        },
+        back_urls: {
+          success: `${cleanOrigin}?pagamento=sucesso&presente=${encodeURIComponent(gift.name || gift_id)}&order_id=${encodeURIComponent(orderId)}`,
+          pending: `${cleanOrigin}?pagamento=pendente&presente=${encodeURIComponent(gift.name || gift_id)}&order_id=${encodeURIComponent(orderId)}`,
+          failure: `${cleanOrigin}?pagamento=cancelado&presente=${encodeURIComponent(gift.name || gift_id)}`
+        },
+        auto_return: "approved",
+        statement_descriptor: "CASAMENTO I&G"
+      };
+
+      const mpRes = await fetch("https://api.mercadopago.com/checkout/preferences", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${mpToken}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(mpBody)
+      });
+
+      const mpData = await mpRes.json();
+      if (!mpRes.ok) {
+        const msg = mpData.message || mpData.error || "Erro retornado pela API do Mercado Pago.";
+        return {
+          statusCode: 502,
+          headers,
+          body: JSON.stringify({ error: `Mercado Pago error: ${msg}`, detail: mpData })
+        };
+      }
+
       return {
-        statusCode: 502,
+        statusCode: 200,
         headers,
-        body: JSON.stringify({ error: `Stripe error: ${msg}`, detail: stripeData })
+        body: JSON.stringify({
+          provider: "mercadopago",
+          init_point: mpData.init_point || mpData.sandbox_init_point,
+          order_id: orderId,
+          preference_id: mpData.id
+        })
+      };
+    }
+
+    // 2. Stripe Checkout (Cartão de Crédito)
+    if (stripeKey) {
+      // Registra pedido prévio no Supabase
+      if (SUPABASE_URL && SUPABASE_KEY) {
+        try {
+          await fetch(`${SUPABASE_URL}/rest/v1/gift_orders`, {
+            method: "POST",
+            headers: {
+              apikey: SUPABASE_KEY,
+              Authorization: `Bearer ${SUPABASE_KEY}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              id: orderId,
+              gift_id,
+              buyer_name: buyer_name.trim(),
+              buyer_message: buyer_message ? String(buyer_message).trim() : null,
+              amount_cents: finalAmount,
+              payment_method: "stripe",
+              status: "pending",
+              created_at: new Date().toISOString()
+            })
+          });
+        } catch (e) {}
+      }
+
+      const stripeParams = new URLSearchParams();
+      stripeParams.append("payment_method_types[]", "card");
+      stripeParams.append("payment_method_options[card][installments][enabled]", "true");
+      stripeParams.append("line_items[0][price_data][currency]", "brl");
+      stripeParams.append("line_items[0][price_data][product_data][name]", `Presente: ${gift.name} — Casamento Iasmin & Gutenberg`);
+      if (gift.description) {
+        stripeParams.append("line_items[0][price_data][product_data][description]", gift.description.substring(0, 200));
+      }
+      stripeParams.append("line_items[0][price_data][unit_amount]", String(finalAmount));
+      stripeParams.append("line_items[0][quantity]", "1");
+      stripeParams.append("mode", "payment");
+      stripeParams.append("client_reference_id", orderId);
+      stripeParams.append("metadata[gift_id]", gift_id);
+      stripeParams.append("metadata[buyer_name]", buyer_name.trim());
+      stripeParams.append("metadata[order_id]", orderId);
+      if (buyer_message) {
+        stripeParams.append("metadata[buyer_message]", String(buyer_message).substring(0, 400));
+      }
+      stripeParams.append("success_url", `${cleanOrigin}?pagamento=sucesso&presente=${encodeURIComponent(gift_id)}&order_id=${encodeURIComponent(orderId)}&session_id={CHECKOUT_SESSION_ID}`);
+      stripeParams.append("cancel_url", `${cleanOrigin}?pagamento=cancelado&presente=${encodeURIComponent(gift_id)}`);
+
+      const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${stripeKey}`,
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: stripeParams.toString()
+      });
+
+      const stripeData = await stripeRes.json();
+      if (!stripeRes.ok) {
+        const msg = stripeData.error?.message || "Erro retornado pela API do Stripe.";
+        return {
+          statusCode: 502,
+          headers,
+          body: JSON.stringify({ error: `Stripe error: ${msg}`, detail: stripeData })
+        };
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          provider: "stripe",
+          init_point: stripeData.url,
+          order_id: orderId
+        })
       };
     }
 
     return {
-      statusCode: 200,
+      statusCode: 400,
       headers,
-      body: JSON.stringify({
-        provider: "stripe",
-        init_point: stripeData.url,
-        order_id: orderId
-      })
+      body: JSON.stringify({ error: "Nenhum método de pagamento disponível." })
     };
   } catch (err) {
     console.error("Netlify Function create-payment error:", err);

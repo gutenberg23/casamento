@@ -32,6 +32,41 @@ function getStripeSecretKey() {
   return null;
 }
 
+function getMercadoPagoAccessToken() {
+  const envKeys = [
+    "MERCADO_PAGO_ACCESS_TOKEN",
+    "MERCADOPAGO_ACCESS_TOKEN",
+    "MP_ACCESS_TOKEN",
+    "MERCADO_PAGO_TOKEN",
+    "VITE_MERCADO_PAGO_ACCESS_TOKEN"
+  ];
+
+  for (const k of envKeys) {
+    const val = process.env[k];
+    if (val && typeof val === "string") {
+      let cleaned = val.trim();
+      if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+        cleaned = cleaned.slice(1, -1).trim();
+      }
+      if (cleaned.length > 5) return cleaned;
+    }
+  }
+
+  for (const [k, val] of Object.entries(process.env)) {
+    if (k.toLowerCase().includes("mercadopago") || k.toLowerCase().includes("mercado_pago") || k === "MP_ACCESS_TOKEN") {
+      let cleaned = String(val).trim();
+      if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+        cleaned = cleaned.slice(1, -1).trim();
+      }
+      if (cleaned.startsWith("APP_USR-") || cleaned.startsWith("TEST-")) {
+        return cleaned;
+      }
+    }
+  }
+
+  return null;
+}
+
 const headers = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
@@ -44,13 +79,24 @@ export async function handler(event) {
     return { statusCode: 200, headers, body: JSON.stringify({ ok: true }) };
   }
 
-  const key = getStripeSecretKey();
+  const stripeKey = getStripeSecretKey();
+  const mpToken = getMercadoPagoAccessToken();
+
   return {
     statusCode: 200,
     headers,
     body: JSON.stringify({
-      configured: Boolean(key),
-      prefix: key ? `${key.substring(0, 7)}...` : null,
+      stripe: {
+        configured: Boolean(stripeKey),
+        prefix: stripeKey ? `${stripeKey.substring(0, 7)}...` : null
+      },
+      mercadopago: {
+        configured: Boolean(mpToken),
+        prefix: mpToken ? `${mpToken.substring(0, 8)}...` : null,
+        is_test: mpToken ? mpToken.startsWith("TEST-") : false
+      },
+      configured: Boolean(stripeKey || mpToken),
+      prefix: mpToken ? `${mpToken.substring(0, 8)}...` : (stripeKey ? `${stripeKey.substring(0, 7)}...` : null),
       runtime: "netlify-function",
       available_env_count: Object.keys(process.env).length
     })

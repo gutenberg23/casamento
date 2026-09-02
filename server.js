@@ -40,6 +40,51 @@ function getStripeSecretKey() {
   return null;
 }
 
+function getMercadoPagoAccessToken() {
+  const possibleKeys = [
+    process.env.MERCADO_PAGO_ACCESS_TOKEN,
+    process.env.MERCADOPAGO_ACCESS_TOKEN,
+    process.env.MP_ACCESS_TOKEN,
+    process.env.MERCADO_PAGO_TOKEN,
+    process.env.VITE_MERCADO_PAGO_ACCESS_TOKEN
+  ];
+
+  for (let key of possibleKeys) {
+    if (key && typeof key === "string") {
+      let cleaned = key.trim();
+      if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+        cleaned = cleaned.slice(1, -1).trim();
+      }
+      if (cleaned.length > 5) {
+        return cleaned;
+      }
+    }
+  }
+  return null;
+}
+
+function getMercadoPagoPublicKey() {
+  const possibleKeys = [
+    process.env.MERCADO_PAGO_PUBLIC_KEY,
+    process.env.MERCADOPAGO_PUBLIC_KEY,
+    process.env.MP_PUBLIC_KEY,
+    process.env.VITE_MERCADO_PAGO_PUBLIC_KEY
+  ];
+
+  for (let key of possibleKeys) {
+    if (key && typeof key === "string") {
+      let cleaned = key.trim();
+      if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+        cleaned = cleaned.slice(1, -1).trim();
+      }
+      if (cleaned.length > 5) {
+        return cleaned;
+      }
+    }
+  }
+  return null;
+}
+
 // In-memory + File Persistent data store
 const defaultGifts = [
   { id: "panelas", name: "Jogo de panelas", description: "Um conjunto bom, dos que duram anos.", price_cents: 35000, unique_item: true, active: true, sort_order: 1, category: "Cozinha", created_at: new Date().toISOString() },
@@ -469,13 +514,86 @@ app.post(["/api/create-payment", "/functions/v1/create-payment", "/.netlify/func
       });
     }
 
-    // 2. Stripe Checkout (Cartão de Crédito)
+    // 2. Mercado Pago Checkout Pro (Cartão de Crédito em até 12x / Parcelamento)
+    if (selectedMethod === "mercadopago" || (selectedMethod === "card" && getMercadoPagoAccessToken())) {
+      const mpToken = getMercadoPagoAccessToken();
+      if (!mpToken) {
+        return res.status(400).json({
+          error: "O Token de Acesso do Mercado Pago (MERCADO_PAGO_ACCESS_TOKEN) não foi detectado no ambiente.",
+          mercadopago_missing: true,
+        });
+      }
+
+      const mpBody = {
+        items: [
+          {
+            id: gift.id,
+            title: `Presente: ${gift.name} — Casamento Iasmin & Gutenberg`,
+            description: (gift.description || "Presente de casamento").slice(0, 200),
+            quantity: 1,
+            unit_price: Number((finalAmount / 100).toFixed(2)),
+            currency_id: "BRL",
+          },
+        ],
+        payer: {
+          name: buyer_name.trim(),
+        },
+        external_reference: order.id,
+        metadata: {
+          gift_id: gift.id,
+          order_id: order.id,
+          buyer_name: buyer_name.trim(),
+          buyer_message: buyer_message ? String(buyer_message).trim() : "",
+        },
+        payment_methods: {
+          installments: 12,
+        },
+        back_urls: {
+          success: `${siteUrl}?pagamento=sucesso&presente=${encodeURIComponent(gift.name)}&order_id=${order.id}`,
+          pending: `${siteUrl}?pagamento=pendente&presente=${encodeURIComponent(gift.name)}&order_id=${order.id}`,
+          failure: `${siteUrl}?pagamento=cancelado&presente=${encodeURIComponent(gift.name)}`,
+        },
+        auto_return: "approved",
+        statement_descriptor: "CASAMENTO I&G",
+      };
+
+      const mpRes = await fetch("https://api.mercadopago.com/checkout/preferences", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${mpToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(mpBody),
+      });
+
+      const mpData = await mpRes.json();
+      if (!mpRes.ok) {
+        const msg = mpData.message || mpData.error || "Erro ao conectar com a API do Mercado Pago.";
+        return res.status(502).json({ error: msg, detail: mpData });
+      }
+
+      const checkoutUrl = mpData.init_point || mpData.sandbox_init_point;
+      order.payment_method = "mercadopago";
+      order.stripe_session_id = mpData.id;
+      giftOrders.unshift(order);
+      saveStore();
+      pushOrderToSupabase(order);
+      return res.json({
+        provider: "mercadopago",
+        init_point: checkoutUrl,
+        order_id: order.id,
+        preference_id: mpData.id,
+      });
+    }
+
+    // 3. Stripe Checkout (Cartão de Crédito)
     if (selectedMethod === "card" || selectedMethod === "stripe") {
       const stripeKey = getStripeSecretKey();
       if (!stripeKey) {
         return res.status(400).json({
-          error: "A chave STRIPE_SECRET_KEY não foi detectada no ambiente. Por favor, certifique-se de que a variável STRIPE_SECRET_KEY foi salva nas configurações.",
+          error: "Nem a chave do Mercado Pago (MERCADO_PAGO_ACCESS_TOKEN) nem a do Stripe (STRIPE_SECRET_KEY) foram detectadas no ambiente. Salve ao menos uma delas nas configurações.",
           stripe_missing: true,
+          mercadopago_missing: true,
         });
       }
 
@@ -529,12 +647,26 @@ app.post(["/api/create-payment", "/functions/v1/create-payment", "/.netlify/func
   }
 });
 
-// Status de configuração do Stripe
-app.get(["/api/stripe-status", "/.netlify/functions/stripe-status"], (req, res) => {
-  const key = getStripeSecretKey();
+// Status de configuração de gateways de pagamento
+app.get(["/api/payment-status", "/api/stripe-status", "/.netlify/functions/stripe-status", "/.netlify/functions/payment-status"], (req, res) => {
+  const stripeKey = getStripeSecretKey();
+  const mpToken = getMercadoPagoAccessToken();
+  const mpPublicKey = getMercadoPagoPublicKey();
+
   return res.json({
-    configured: Boolean(key),
-    prefix: key ? `${key.substring(0, 7)}...` : null
+    stripe: {
+      configured: Boolean(stripeKey),
+      prefix: stripeKey ? `${stripeKey.substring(0, 7)}...` : null
+    },
+    mercadopago: {
+      configured: Boolean(mpToken),
+      prefix: mpToken ? `${mpToken.substring(0, 8)}...` : null,
+      is_test: mpToken ? mpToken.startsWith("TEST-") : false,
+      public_key_configured: Boolean(mpPublicKey)
+    },
+    configured: Boolean(stripeKey || mpToken),
+    primary_provider: mpToken ? "mercadopago" : (stripeKey ? "stripe" : null),
+    prefix: mpToken ? `${mpToken.substring(0, 8)}...` : (stripeKey ? `${stripeKey.substring(0, 7)}...` : null)
   });
 });
 
@@ -622,6 +754,47 @@ app.post("/api/stripe-webhook", (req, res) => {
     return res.json({ received: true });
   } catch (err) {
     return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+});
+
+// Mercado Pago Webhook / IPN
+app.all(["/api/mercadopago-webhook", "/api/mp-webhook"], async (req, res) => {
+  try {
+    const topic = req.query.topic || req.query.type || req.body?.type || req.body?.action;
+    const paymentId = req.query.id || req.query["data.id"] || req.body?.data?.id || req.body?.id;
+    const mpAccessToken = getMercadoPagoAccessToken();
+
+    if ((topic === "payment" || topic === "payment.created" || topic === "payment.updated") && paymentId && mpAccessToken) {
+      const pRes = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
+        headers: {
+          Authorization: `Bearer ${mpAccessToken}`,
+        },
+      });
+
+      if (pRes.ok) {
+        const paymentData = await pRes.json();
+        const externalRef = paymentData.external_reference;
+        const status = paymentData.status;
+
+        if (externalRef) {
+          const order = giftOrders.find(o => o.id === externalRef);
+          if (order) {
+            if (status === "approved") {
+              order.status = "approved";
+            } else if (status === "rejected" || status === "cancelled") {
+              order.status = "rejected";
+            }
+            order.updated_at = new Date().toISOString();
+            saveStore();
+            pushOrderToSupabase(order);
+          }
+        }
+      }
+    }
+    return res.json({ received: true });
+  } catch (err) {
+    console.error("Erro webhook Mercado Pago:", err);
+    return res.status(200).json({ received: true, error: err.message });
   }
 });
 

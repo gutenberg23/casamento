@@ -719,7 +719,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                               </div>
                               <div className="flex items-center gap-2">
                                 <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 bg-[#FCF9F3] border border-[#3A2E22]/15 rounded text-[#7A6A57]">
-                                  {o.payment_method === 'card' || o.payment_method === 'stripe' ? 'Cartão Stripe' : 'Pix Instantâneo'}
+                                  {o.payment_method === 'mercadopago' ? 'Mercado Pago (12x)' : (o.payment_method === 'card' || o.payment_method === 'stripe' ? 'Cartão Stripe' : 'Pix Instantâneo')}
                                 </span>
                                 {isApproved && (
                                   <span className="px-2.5 py-0.5 rounded-full font-semibold text-[11px] bg-[#7C8862]/15 text-[#5C6748]">
@@ -817,28 +817,60 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               {/* ================= TAB 4: SETTINGS / DIAGNOSTIC ================= */}
               {activeTab === 'settings' && (
                 <div className="space-y-4">
+                  {/* Mercado Pago */}
                   <div className="p-4 bg-white border border-[#3A2E22]/15 rounded-md text-xs">
                     <h5 className="font-semibold text-sm text-[#3A2E22] mb-2 flex items-center gap-1.5">
-                      <Settings className="w-4 h-4 text-[#C67C4E]" />
-                      <span>Status do Stripe (Cartão de Crédito)</span>
+                      <Settings className="w-4 h-4 text-[#009EE3]" />
+                      <span>Mercado Pago (Cartão de Crédito em até 12x)</span>
                     </h5>
-                    <p className="text-[#7A6A57] mb-2">
-                      {stripeDiagnostic?.configured ? (
+                    <div className="space-y-1.5 text-[#7A6A57]">
+                      {stripeDiagnostic?.mercadopago?.configured ? (
+                        <div className="text-[#5C6748] font-semibold flex items-center gap-1.5">
+                          <Check className="w-4 h-4 text-[#5C6748]" />
+                          <span>MERCADO_PAGO_ACCESS_TOKEN configurado ({stripeDiagnostic.mercadopago.prefix})</span>
+                          {stripeDiagnostic.mercadopago.is_test && (
+                            <span className="px-1.5 py-0.5 bg-blue-100 text-blue-800 text-[10px] rounded font-medium">Modo Sandbox/Teste</span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-amber-700 flex items-center gap-1.5">
+                          <AlertCircle className="w-4 h-4 text-amber-600" />
+                          <span>MERCADO_PAGO_ACCESS_TOKEN não detectado nas variáveis de ambiente.</span>
+                        </div>
+                      )}
+                      <p className="text-[11px] text-[#7A6A57]">
+                        Permite que os convidados parcelem o presente em até <strong>12 parcelas</strong> com toda a conveniência do Checkout Pro.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Stripe */}
+                  <div className="p-4 bg-white border border-[#3A2E22]/15 rounded-md text-xs">
+                    <h5 className="font-semibold text-sm text-[#3A2E22] mb-2 flex items-center gap-1.5">
+                      <Settings className="w-4 h-4 text-[#635BFF]" />
+                      <span>Stripe Checkout (Gateway Secundário)</span>
+                    </h5>
+                    <p className="text-[#7A6A57] mb-1">
+                      {stripeDiagnostic?.stripe?.configured || stripeDiagnostic?.configured ? (
                         <span className="text-[#5C6748] font-semibold flex items-center gap-1">
                           <Check className="w-4 h-4" />
-                          Chave STRIPE_SECRET_KEY detectada ({stripeDiagnostic.prefix})
+                          STRIPE_SECRET_KEY detectada ({stripeDiagnostic?.stripe?.prefix || stripeDiagnostic?.prefix})
                         </span>
                       ) : (
-                        <span className="text-amber-700 flex items-center gap-1">
-                          <AlertCircle className="w-4 h-4" />
-                          Chave STRIPE_SECRET_KEY não foi detectada. Salve a chave nas variáveis de ambiente.
+                        <span className="text-[#7A6A57] flex items-center gap-1">
+                          <AlertCircle className="w-4 h-4 text-gray-400" />
+                          STRIPE_SECRET_KEY não configurada.
                         </span>
                       )}
                     </p>
                   </div>
 
+                  {/* Pix */}
                   <div className="p-4 bg-white border border-[#3A2E22]/15 rounded-md text-xs">
-                    <h5 className="font-semibold text-sm text-[#3A2E22] mb-2">Chave Pix dos Noivos</h5>
+                    <h5 className="font-semibold text-sm text-[#3A2E22] mb-2 flex items-center gap-1.5">
+                      <Check className="w-4 h-4 text-[#5C6748]" />
+                      <span>Chave Pix Direta dos Noivos (0% Taxas)</span>
+                    </h5>
                     <p className="text-[#7A6A57] leading-relaxed">
                       Chave: <strong>gutenberg23@gmail.com</strong><br />
                       Beneficiário: <strong>Iasmin e Gutenberg</strong><br />
