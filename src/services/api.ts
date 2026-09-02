@@ -244,6 +244,53 @@ export async function confirmPixOrder(
   return order;
 }
 
+export async function confirmCardOrder(
+  orderId?: string | null,
+  sessionId?: string | null,
+  paymentId?: string | null,
+  giftName?: string | null
+): Promise<void> {
+  if (!orderId && !sessionId && !paymentId) return;
+
+  try {
+    const res = await fetch('/api/confirm-card-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        order_id: orderId,
+        session_id: sessionId,
+        payment_id: paymentId,
+        gift_name: giftName
+      })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.order) {
+        const orders = getLocalOrders();
+        const existingIdx = orders.findIndex(o => o.id === data.order.id);
+        if (existingIdx >= 0) {
+          orders[existingIdx] = { ...orders[existingIdx], ...data.order, status: 'approved' };
+        } else {
+          orders.unshift(data.order);
+        }
+        saveLocalOrders(orders);
+
+        // Update local gifts
+        const gifts = getLocalGifts();
+        const giftIdx = gifts.findIndex(g => g.id === data.order.gift_id || g.name === data.order.gift_id || g.name === giftName);
+        if (giftIdx !== -1 && gifts[giftIdx].unique_item) {
+          gifts[giftIdx].order_status = 'approved';
+          gifts[giftIdx].buyer_name = data.order.buyer_name || 'Convidado';
+          gifts[giftIdx].order_id = data.order.id;
+          saveLocalGifts(gifts);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Erro ao chamar /api/confirm-card-order:', e);
+  }
+}
+
 export interface PaymentGatewayStatus {
   configured: boolean;
   prefix?: string | null;

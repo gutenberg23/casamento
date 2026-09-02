@@ -49,7 +49,7 @@ export const App: React.FC = () => {
       <JasmineSvgDefs />
 
       {/* Stripe and Payment Return Alerts */}
-      <ReturnBanner />
+      <ReturnBanner onPaymentApproved={loadAllData} />
 
       {/* Romantic Navigation Bar */}
       <Navbar

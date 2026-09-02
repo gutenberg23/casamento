@@ -211,7 +211,8 @@ async function pushGiftToSupabase(action, gift) {
         price_cents: Number(gift.price_cents),
         unique_item: gift.unique_item ?? true,
         active: gift.active ?? true,
-        sort_order: Number(gift.sort_order) || 0
+        sort_order: Number(gift.sort_order) || 0,
+        category: gift.category || "Casa"
       };
       await fetch(`${SUPABASE_URL}/rest/v1/gifts?on_conflict=id`, {
         method: "POST",
@@ -701,6 +702,47 @@ app.post("/api/confirm-pix-order", (req, res) => {
 
   saveStore();
   pushOrderToSupabase(order);
+
+  return res.json({ success: true, order });
+});
+
+// Confirmação/Verificação de pedido de cartão (Stripe / Mercado Pago) chamado após redirecionamento de sucesso
+app.post("/api/confirm-card-order", async (req, res) => {
+  const { order_id, session_id, payment_id, gift_name } = req.body;
+  if (!order_id && !session_id && !payment_id) {
+    return res.status(400).json({ error: "Identificador do pedido ou sessão é obrigatório." });
+  }
+
+  let order = giftOrders.find(o => o.id === order_id || (session_id && o.stripe_session_id === session_id));
+
+  // Se não foi encontrado pelo ID mas veio gift_name e order_id, tenta localizar por nome ou cria se necessário
+  if (!order && order_id) {
+    let matchedGift = gifts.find(g => g.id === order_id || g.name === gift_name || g.id === gift_name);
+    order = {
+      id: order_id,
+      gift_id: matchedGift ? matchedGift.id : (gift_name || "presente"),
+      buyer_name: "Convidado",
+      buyer_message: null,
+      amount_cents: matchedGift ? matchedGift.price_cents : 10000,
+      payment_method: session_id ? "stripe" : "card",
+      status: "approved",
+      stripe_session_id: session_id || null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    giftOrders.unshift(order);
+  } else if (order) {
+    order.status = "approved";
+    order.updated_at = new Date().toISOString();
+    if (session_id && !order.stripe_session_id) {
+      order.stripe_session_id = session_id;
+    }
+  }
+
+  if (order) {
+    saveStore();
+    await pushOrderToSupabase(order);
+  }
 
   return res.json({ success: true, order });
 });
