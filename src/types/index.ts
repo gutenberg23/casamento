@@ -9,7 +9,7 @@ export interface Gift {
   created_at?: string;
   order_id?: string | null;
   buyer_name?: string | null;
-  order_status?: 'approved' | 'pending' | 'rejected' | null;
+  order_status?: 'approved' | 'awaiting_confirmation' | 'pending' | 'rejected' | null;
   order_amount_cents?: number | null;
   category?: string;
 }
@@ -21,7 +21,7 @@ export interface GiftOrder {
   buyer_message?: string | null;
   amount_cents: number;
   payment_method: 'pix_direct' | 'stripe' | 'card' | string;
-  status: 'approved' | 'pending' | 'rejected';
+  status: 'approved' | 'awaiting_confirmation' | 'pending' | 'rejected';
   stripe_session_id?: string | null;
   created_at: string;
   updated_at?: string;
@@ -31,8 +31,9 @@ export interface GiftOrder {
 export interface Rsvp {
   id: string;
   name: string;
+  phone: string;
   attending: boolean;
-  guests: number;
+  guests?: number;
   message?: string | null;
   created_at: string;
 }

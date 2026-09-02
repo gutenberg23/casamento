@@ -29,7 +29,7 @@ export async function handler(event) {
       statusCode: 200,
       headers,
       body: JSON.stringify([
-        { id: "sample-1", name: "Família Silva", attending: true, guests: 2, message: "Parabéns ao casal!", created_at: new Date().toISOString() }
+        { id: "sample-1", name: "Mariana Silva", phone: "(21) 98888-7777", attending: true, guests: 1, message: "Parabéns ao casal!", created_at: new Date().toISOString() }
       ])
     };
   }
@@ -37,7 +37,7 @@ export async function handler(event) {
   if (event.httpMethod === "POST") {
     try {
       const body = typeof event.body === "string" ? JSON.parse(event.body) : event.body;
-      const { name, attending, guests, message } = body;
+      const { name, phone, attending, message } = body;
       if (!name || !name.trim()) {
         return { statusCode: 400, headers, body: JSON.stringify({ error: "Nome é obrigatório." }) };
       }
@@ -45,8 +45,9 @@ export async function handler(event) {
       const newRsvp = {
         id: `rsvp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         name: name.trim(),
+        phone: phone ? String(phone).trim() : "",
         attending: attending === true || attending === "true" || attending === "sim",
-        guests: attending ? parseInt(guests, 10) || 1 : 0,
+        guests: 1,
         message: message ? String(message).trim() : null,
         created_at: new Date().toISOString()
       };
@@ -58,7 +59,8 @@ export async function handler(event) {
             headers: {
               apikey: SUPABASE_KEY,
               Authorization: `Bearer ${SUPABASE_KEY}`,
-              "Content-Type": "application/json"
+              "Content-Type": "application/json",
+              Prefer: "resolution=merge-duplicates,return=representation"
             },
             body: JSON.stringify(newRsvp)
           });

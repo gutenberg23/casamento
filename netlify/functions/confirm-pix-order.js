@@ -12,7 +12,7 @@ export async function handler(event) {
 
   try {
     const body = typeof event.body === "string" ? JSON.parse(event.body) : event.body;
-    const { order_id } = body;
+    const { order_id, gift_id, buyer_name, amount_cents, buyer_message } = body;
     if (!order_id) {
       return { statusCode: 400, headers, body: JSON.stringify({ error: "order_id é obrigatório." }) };
     }
@@ -20,21 +20,37 @@ export async function handler(event) {
     const SUPABASE_URL = process.env.SUPABASE_URL || "https://sxivkbppdhzpelzfppud.supabase.co";
     const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 
+    const orderPayload = {
+      id: order_id,
+      gift_id: gift_id || "presente",
+      buyer_name: buyer_name ? String(buyer_name).trim() : "Convidado",
+      buyer_message: buyer_message ? String(buyer_message).trim() : null,
+      amount_cents: Number(amount_cents) || 10000,
+      payment_method: "pix_direct",
+      status: "awaiting_confirmation",
+      stripe_session_id: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
     if (SUPABASE_URL && SUPABASE_KEY) {
       try {
-        await fetch(`${SUPABASE_URL}/rest/v1/gift_orders?id=eq.${encodeURIComponent(order_id)}`, {
-          method: "PATCH",
+        await fetch(`${SUPABASE_URL}/rest/v1/gift_orders?on_conflict=id`, {
+          method: "POST",
           headers: {
             apikey: SUPABASE_KEY,
             Authorization: `Bearer ${SUPABASE_KEY}`,
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            Prefer: "resolution=merge-duplicates,return=representation"
           },
-          body: JSON.stringify({ status: "approved", updated_at: new Date().toISOString() })
+          body: JSON.stringify(orderPayload)
         });
-      } catch (e) {}
+      } catch (e) {
+        console.error("Erro ao salvar pedido no Supabase:", e);
+      }
     }
 
-    return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
+    return { statusCode: 200, headers, body: JSON.stringify({ success: true, order: orderPayload }) };
   } catch (err) {
     return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
   }

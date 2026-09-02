@@ -39,19 +39,24 @@ export async function handler(event) {
       const [gifts, orders] = await Promise.all([gRes.json(), oRes.json()]);
 
       if (Array.isArray(gifts) && gifts.length > 0) {
-        const approvedOrders = Array.isArray(orders)
-          ? orders.filter(o => o.status === "approved" || o.status === "pending")
+        const nonRejectedOrders = Array.isArray(orders)
+          ? orders.filter(o => o.status !== "rejected")
           : [];
 
         const consolidated = gifts.map(g => {
-          const matchingOrder = approvedOrders.find(o => o.gift_id === g.id);
+          const matchingOrders = nonRejectedOrders.filter(o => o.gift_id === g.id);
+          const activeOrder = 
+            matchingOrders.find(o => o.status === "approved") ||
+            matchingOrders.find(o => o.status === "awaiting_confirmation") ||
+            matchingOrders.find(o => o.status === "pending");
+
           return {
             ...g,
-            order_id: matchingOrder?.id || null,
-            buyer_name: matchingOrder?.buyer_name || null,
-            order_status: matchingOrder?.status || null,
-            order_amount_cents: matchingOrder?.amount_cents || null,
-            payment_method: matchingOrder?.payment_method || null
+            order_id: activeOrder?.id || null,
+            buyer_name: activeOrder?.buyer_name || null,
+            order_status: activeOrder?.status || null,
+            order_amount_cents: activeOrder?.amount_cents || null,
+            payment_method: activeOrder?.payment_method || null
           };
         });
 

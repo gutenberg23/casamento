@@ -1,8 +1,8 @@
 import { Gift, GiftOrder, Rsvp } from '../types';
 
-const LOCAL_STORAGE_KEY_GIFTS = 'iasmin_gutenberg_gifts_v3';
-const LOCAL_STORAGE_KEY_RSVPS = 'iasmin_gutenberg_rsvps_v3';
-const LOCAL_STORAGE_KEY_ORDERS = 'iasmin_gutenberg_orders_v3';
+const LOCAL_STORAGE_KEY_GIFTS = 'iasmin_gutenberg_gifts_v4';
+const LOCAL_STORAGE_KEY_RSVPS = 'iasmin_gutenberg_rsvps_v4';
+const LOCAL_STORAGE_KEY_ORDERS = 'iasmin_gutenberg_orders_v4';
 
 export const defaultCatalog: Gift[] = [
   { id: 'panelas', name: 'Jogo de panelas', description: 'Um conjunto bom, dos que duram anos.', price_cents: 35000, unique_item: true, active: true, sort_order: 1, category: 'Cozinha' },
@@ -39,7 +39,7 @@ export function getLocalRsvps(): Rsvp[] {
     if (raw) return JSON.parse(raw);
   } catch {}
   return [
-    { id: 'sample-1', name: 'Família Silva', attending: true, guests: 2, message: 'Parabéns ao casal lindo! Estaremos lá com certeza!', created_at: new Date(Date.now() - 86400000).toISOString() }
+    { id: 'sample-1', name: 'Mariana Silva', phone: '(21) 98888-7777', attending: true, guests: 1, message: 'Parabéns ao casal lindo! Estarei lá com certeza!', created_at: new Date(Date.now() - 86400000).toISOString() }
   ];
 }
 
@@ -75,7 +75,7 @@ export async function fetchGifts(): Promise<Gift[]> {
       }
     }
   } catch (e) {
-    console.warn('API /api/gifts unavailable, falling back to local store:', e);
+    console.warn('API /api/gifts indisponível, usando cache local:', e);
   }
   return getLocalGifts();
 }
@@ -91,17 +91,18 @@ export async function fetchRsvps(): Promise<Rsvp[]> {
       }
     }
   } catch (e) {
-    console.warn('API /api/rsvps unavailable, falling back to local store:', e);
+    console.warn('API /api/rsvps indisponível, usando cache local:', e);
   }
   return getLocalRsvps();
 }
 
-export async function submitRsvp(payload: { name: string; attending: boolean; guests: number; message?: string }): Promise<Rsvp> {
+export async function submitRsvp(payload: { name: string; phone: string; attending: boolean; message?: string }): Promise<Rsvp> {
   const newRsvp: Rsvp = {
     id: `rsvp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
     name: payload.name.trim(),
+    phone: payload.phone.trim(),
     attending: payload.attending,
-    guests: payload.attending ? Number(payload.guests) || 1 : 0,
+    guests: 1,
     message: payload.message?.trim() || null,
     created_at: new Date().toISOString()
   };
@@ -120,7 +121,7 @@ export async function submitRsvp(payload: { name: string; attending: boolean; gu
       return data || newRsvp;
     }
   } catch (e) {
-    console.warn('Fallback saving RSVP locally:', e);
+    console.warn('Fallback salvando RSVP localmente:', e);
   }
 
   const list = getLocalRsvps();
@@ -140,7 +141,7 @@ export async function fetchOrders(): Promise<GiftOrder[]> {
       }
     }
   } catch (e) {
-    console.warn('API /api/orders unavailable, falling back to local store:', e);
+    console.warn('API /api/orders indisponível, usando cache local:', e);
   }
   return getLocalOrders();
 }
@@ -163,7 +164,7 @@ export async function createPayment(params: {
         body: JSON.stringify(params)
       });
       const data = await res.json().catch(() => null);
-      if (res.ok && data && (data.init_point || data.provider)) {
+      if (res.ok && data && (data.init_point || data.provider || data.order_id)) {
         return data;
       }
       if (data?.error) {
@@ -177,37 +178,67 @@ export async function createPayment(params: {
   throw new Error(lastError || 'Não foi possível iniciar o pagamento.');
 }
 
-export async function confirmPixOrder(orderId: string, giftId: string, buyerName: string, amountCents: number, buyerMessage?: string): Promise<GiftOrder> {
+export async function confirmPixOrder(
+  orderId: string,
+  giftId: string,
+  buyerName: string,
+  amountCents: number,
+  buyerMessage?: string
+): Promise<GiftOrder> {
   const order: GiftOrder = {
     id: orderId,
     gift_id: giftId,
     buyer_name: buyerName.trim(),
-    buyer_message: buyerMessage || null,
+    buyer_message: buyerMessage?.trim() || null,
     amount_cents: amountCents,
     payment_method: 'pix_direct',
-    status: 'approved',
-    created_at: new Date().toISOString()
+    status: 'awaiting_confirmation',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
   };
 
   try {
-    await fetch('/api/confirm-pix-order', {
+    const res = await fetch('/api/confirm-pix-order', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_id: orderId })
+      body: JSON.stringify({
+        order_id: orderId,
+        gift_id: giftId,
+        buyer_name: buyerName.trim(),
+        amount_cents: amountCents,
+        buyer_message: buyerMessage?.trim() || null
+      })
     });
-  } catch {}
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.order) {
+        Object.assign(order, data.order);
+      }
+    }
+  } catch (e) {
+    console.warn('Erro ao chamar /api/confirm-pix-order:', e);
+  }
 
+  // Atualiza pedidos no cache local
   const orders = getLocalOrders();
-  orders.unshift(order);
+  const existingIdx = orders.findIndex(o => o.id === orderId);
+  if (existingIdx >= 0) {
+    orders[existingIdx] = { ...orders[existingIdx], ...order, status: 'awaiting_confirmation' };
+  } else {
+    orders.unshift(order);
+  }
   saveLocalOrders(orders);
 
-  // Update gift status locally
+  // Atualiza status do presente no cache local
   const gifts = getLocalGifts();
   const giftIndex = gifts.findIndex(g => g.id === giftId);
-  if (giftIndex !== -1 && gifts[giftIndex].unique_item) {
-    gifts[giftIndex].order_status = 'approved';
-    gifts[giftIndex].buyer_name = buyerName;
-    saveLocalGifts(gifts);
+  if (giftIndex !== -1) {
+    if (gifts[giftIndex].unique_item) {
+      gifts[giftIndex].order_status = 'awaiting_confirmation';
+      gifts[giftIndex].buyer_name = buyerName.trim();
+      gifts[giftIndex].order_id = orderId;
+      saveLocalGifts(gifts);
+    }
   }
 
   return order;
@@ -221,6 +252,70 @@ export async function checkStripeStatus(): Promise<{ configured: boolean; prefix
     }
   } catch {}
   return { configured: false };
+}
+
+export async function adminUpdateOrderStatus(
+  code: string,
+  orderId: string,
+  status: 'approved' | 'rejected' | 'pending' | 'awaiting_confirmation'
+): Promise<GiftOrder[]> {
+  const cleanCode = code.trim();
+  let updatedOrders: GiftOrder[] = [];
+
+  try {
+    const res = await fetch('/api/admin-orders', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-admin-code': cleanCode
+      },
+      body: JSON.stringify({ code: cleanCode, order_id: orderId, status })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data?.orders)) {
+        updatedOrders = data.orders;
+        saveLocalOrders(data.orders);
+      }
+    }
+  } catch {}
+
+  if (updatedOrders.length === 0) {
+    const orders = getLocalOrders();
+    const idx = orders.findIndex(o => o.id === orderId);
+    if (idx >= 0) {
+      orders[idx].status = status;
+      orders[idx].updated_at = new Date().toISOString();
+      saveLocalOrders(orders);
+    }
+    updatedOrders = orders;
+  }
+
+  // Sincroniza o presente correspondente no cache local
+  const targetOrder = updatedOrders.find(o => o.id === orderId);
+  if (targetOrder) {
+    const gifts = getLocalGifts();
+    const gIdx = gifts.findIndex(g => g.id === targetOrder.gift_id);
+    if (gIdx >= 0 && gifts[gIdx].unique_item) {
+      if (status === 'rejected') {
+        // Se foi rejeitado/cancelado, libera o presente para novos compradores
+        gifts[gIdx].order_status = null;
+        gifts[gIdx].buyer_name = null;
+        gifts[gIdx].order_id = null;
+      } else if (status === 'approved') {
+        gifts[gIdx].order_status = 'approved';
+        gifts[gIdx].buyer_name = targetOrder.buyer_name;
+        gifts[gIdx].order_id = targetOrder.id;
+      } else if (status === 'awaiting_confirmation' || status === 'pending') {
+        gifts[gIdx].order_status = 'awaiting_confirmation';
+        gifts[gIdx].buyer_name = targetOrder.buyer_name;
+        gifts[gIdx].order_id = targetOrder.id;
+      }
+      saveLocalGifts(gifts);
+    }
+  }
+
+  return updatedOrders;
 }
 
 export async function adminGiftsAction(code: string, action: 'list' | 'create' | 'update' | 'delete', gift?: Partial<Gift>): Promise<Gift[]> {

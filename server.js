@@ -216,6 +216,7 @@ async function pushRsvpToSupabase(rsvp) {
     const payload = {
       id: rsvp.id,
       name: rsvp.name,
+      phone: rsvp.phone || null,
       attending: rsvp.attending,
       guests: Number(rsvp.guests) || 1,
       message: rsvp.message || null,
@@ -321,9 +322,13 @@ function getGiftStatusList() {
   return gifts
     .filter(g => g.active !== false)
     .map(g => {
-      const activeOrder = giftOrders.find(
-        o => o.gift_id === g.id && (o.status === "approved" || (o.status === "pending" && (Date.now() - new Date(o.created_at).getTime() < 60 * 60 * 1000)))
-      );
+      // Find orders for this gift: prioritize approved > awaiting_confirmation > recent pending
+      const giftMatchingOrders = giftOrders.filter(o => o.gift_id === g.id && o.status !== "rejected");
+      
+      const activeOrder = 
+        giftMatchingOrders.find(o => o.status === "approved") ||
+        giftMatchingOrders.find(o => o.status === "awaiting_confirmation") ||
+        giftMatchingOrders.find(o => o.status === "pending" && (Date.now() - new Date(o.created_at).getTime() < 60 * 60 * 1000));
 
       return {
         ...g,
@@ -361,7 +366,7 @@ app.get(["/api/rsvps", "/rest/v1/rsvps"], (req, res) => {
 });
 
 app.post(["/api/rsvps", "/rest/v1/rsvps"], (req, res) => {
-  const { name, attending, guests, message } = req.body;
+  const { name, phone, attending, message } = req.body;
   if (!name || typeof name !== "string" || !name.trim()) {
     return res.status(400).json({ error: "Nome é obrigatório." });
   }
@@ -369,8 +374,9 @@ app.post(["/api/rsvps", "/rest/v1/rsvps"], (req, res) => {
   const newRsvp = {
     id: `rsvp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     name: name.trim(),
+    phone: phone ? String(phone).trim() : "",
     attending: attending === true || attending === "true" || attending === "sim",
-    guests: attending ? parseInt(guests, 10) || 1 : 0,
+    guests: 1,
     message: message ? String(message).trim() : null,
     created_at: new Date().toISOString(),
   };
@@ -409,10 +415,10 @@ app.post(["/api/create-payment", "/functions/v1/create-payment", "/.netlify/func
 
     if (gift.unique_item) {
       const activeOrder = giftOrders.find(
-        o => o.gift_id === gift_id && (o.status === "approved" || (o.status === "pending" && Date.now() - new Date(o.created_at).getTime() < 60 * 60 * 1000))
+        o => o.gift_id === gift_id && (o.status === "approved" || o.status === "awaiting_confirmation" || (o.status === "pending" && Date.now() - new Date(o.created_at).getTime() < 60 * 60 * 1000))
       );
       if (activeOrder) {
-        return res.status(409).json({ error: "Esse presente já foi escolhido por outra pessoa." });
+        return res.status(409).json({ error: "Esse presente já foi escolhido por outra pessoa e está aguardando confirmação ou já foi presenteado." });
       }
     }
 
@@ -533,22 +539,66 @@ app.get(["/api/stripe-status", "/.netlify/functions/stripe-status"], (req, res) 
 
 // Confirmação do Pix direto feita pelo convidado
 app.post("/api/confirm-pix-order", (req, res) => {
-  const { order_id } = req.body;
+  const { order_id, gift_id, buyer_name, amount_cents, buyer_message } = req.body;
   if (!order_id) {
     return res.status(400).json({ error: "order_id é obrigatório." });
   }
 
-  const order = giftOrders.find(o => o.id === order_id);
+  let order = giftOrders.find(o => o.id === order_id);
   if (!order) {
-    return res.status(404).json({ error: "Pedido não encontrado." });
+    order = {
+      id: order_id,
+      gift_id: gift_id || "presente",
+      buyer_name: buyer_name ? String(buyer_name).trim() : "Convidado",
+      buyer_message: buyer_message ? String(buyer_message).trim() : null,
+      amount_cents: Number(amount_cents) || 10000,
+      payment_method: "pix_direct",
+      status: "awaiting_confirmation",
+      stripe_session_id: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    giftOrders.unshift(order);
+  } else {
+    order.status = "awaiting_confirmation";
+    order.updated_at = new Date().toISOString();
+    if (buyer_name) order.buyer_name = String(buyer_name).trim();
+    if (buyer_message) order.buyer_message = String(buyer_message).trim();
   }
 
-  order.status = "approved";
-  order.updated_at = new Date().toISOString();
   saveStore();
   pushOrderToSupabase(order);
 
   return res.json({ success: true, order });
+});
+
+// Admin Orders Management (Alterar status de pedidos)
+app.all(["/api/admin-orders", "/functions/v1/admin-orders"], (req, res) => {
+  const code = req.body?.code || req.query?.code || req.headers["x-admin-code"];
+  if (!checkAdminCode(code)) {
+    return res.status(401).json({ error: "Código incorreto." });
+  }
+
+  const { order_id, status } = req.body;
+  if (order_id && status) {
+    const order = giftOrders.find(o => o.id === order_id);
+    if (order) {
+      order.status = status;
+      order.updated_at = new Date().toISOString();
+      saveStore();
+      pushOrderToSupabase(order);
+    }
+  }
+
+  const list = giftOrders.map(o => {
+    const gift = gifts.find(g => g.id === o.gift_id);
+    return {
+      ...o,
+      gift_name: gift ? gift.name : o.gift_id,
+    };
+  }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  return res.json({ success: true, orders: list });
 });
 
 // Stripe Webhook

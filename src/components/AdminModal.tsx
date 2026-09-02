@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Gift, GiftOrder, Rsvp } from '../types';
-import { formatBRL, formatDateBR, exportToCSV } from '../utils/formatters';
-import { adminGiftsAction, checkStripeStatus } from '../services/api';
-import { X, Lock, Gift as GiftIcon, Users, ShoppingBag, Settings, Plus, Edit2, Trash2, Download, Check, AlertCircle, RefreshCw, Key } from 'lucide-react';
+import { formatBRL, formatDateBR, exportToCSV, cleanPhoneBR } from '../utils/formatters';
+import { adminGiftsAction, checkStripeStatus, adminUpdateOrderStatus } from '../services/api';
+import { X, Lock, Gift as GiftIcon, Users, ShoppingBag, Settings, Plus, Edit2, Trash2, Download, Check, AlertCircle, Phone, MessageSquare, ExternalLink } from 'lucide-react';
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -43,7 +43,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
   // Filters
   const [rsvpFilter, setRsvpFilter] = useState<'all' | 'attending' | 'not_attending'>('all');
-  const [orderFilter, setOrderFilter] = useState<'all' | 'approved' | 'pending'>('all');
+  const [orderFilter, setOrderFilter] = useState<'all' | 'awaiting_confirmation' | 'approved' | 'rejected'>('all');
 
   // Diagnostic state
   const [stripeDiagnostic, setStripeDiagnostic] = useState<{ configured: boolean; prefix?: string } | null>(null);
@@ -132,16 +132,28 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     }
   };
 
+  const handleToggleOrderStatus = async (orderId: string, newStatus: 'approved' | 'rejected' | 'pending' | 'awaiting_confirmation') => {
+    setLoadingAction(true);
+    try {
+      await adminUpdateOrderStatus(adminCodeInput, orderId, newStatus);
+      onRefreshData();
+    } catch (e: any) {
+      alert(e.message || 'Erro ao alterar status do pedido.');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
   // CSV Exports
   const handleExportRsvps = () => {
     const data = rsvps.map(r => ({
       Nome: r.name,
+      WhatsApp: r.phone || '',
       Presença: r.attending ? 'Confirmado (SIM)' : 'Não comparecerá',
-      Quantidade_Pessoas: r.guests,
       Recado: r.message || '',
       Data_Confirmacao: formatDateBR(r.created_at),
     }));
-    exportToCSV('rsvps-casamento-iasmin-e-gutenberg.csv', data);
+    exportToCSV('rsvps-confirmacoes-iasmin-e-gutenberg.csv', data);
   };
 
   const handleExportOrders = () => {
@@ -164,13 +176,16 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     return true;
   });
 
-  const totalConfirmedPeople = rsvps
-    .filter(r => r.attending)
-    .reduce((sum, r) => sum + (r.guests || 1), 0);
+  const totalConfirmedPeople = rsvps.filter(r => r.attending).length;
+
+  const countAwaiting = orders.filter(o => o.status === 'awaiting_confirmation' || o.status === 'pending').length;
+  const countApproved = orders.filter(o => o.status === 'approved').length;
+  const countRejected = orders.filter(o => o.status === 'rejected').length;
 
   const filteredOrders = orders.filter(o => {
+    if (orderFilter === 'awaiting_confirmation') return o.status === 'awaiting_confirmation' || o.status === 'pending';
     if (orderFilter === 'approved') return o.status === 'approved';
-    if (orderFilter === 'pending') return o.status === 'pending';
+    if (orderFilter === 'rejected') return o.status === 'rejected';
     return true;
   });
 
@@ -178,10 +193,14 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     .filter(o => o.status === 'approved')
     .reduce((sum, o) => sum + (o.amount_cents || 0), 0);
 
+  const totalAwaitingCents = orders
+    .filter(o => o.status === 'awaiting_confirmation' || o.status === 'pending')
+    .reduce((sum, o) => sum + (o.amount_cents || 0), 0);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#3A2E22]/50 backdrop-blur-xs animate-fade-in">
       <div
-        className="relative bg-[#FCF9F3] border border-[#3A2E22]/15 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl"
+        className="relative bg-[#FCF9F3] border border-[#3A2E22]/15 rounded-lg max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -194,7 +213,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="text-[#7A6A57] hover:text-[#3A2E22] transition-colors p-1"
+            className="text-[#7A6A57] hover:text-[#3A2E22] transition-colors p-1 cursor-pointer"
             aria-label="Fechar"
           >
             <X className="w-5 h-5" />
@@ -453,6 +472,12 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                                 Presenteado ({g.buyer_name || 'Convidado'})
                               </span>
                             )}
+                            {(g.order_status === 'awaiting_confirmation' || (g.unique_item && g.order_status === 'pending')) && (
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 font-semibold flex items-center gap-1">
+                                <Clock className="w-2.5 h-2.5 text-amber-700" />
+                                Aguardando confirmação ({g.buyer_name || 'Convidado'})
+                              </span>
+                            )}
                           </div>
                           <p className="text-xs text-[#7A6A57] line-clamp-1 mt-0.5">
                             {g.description || 'Sem descrição'} · Categoria: {g.category || 'Casa'} · {g.unique_item ? 'Item único' : 'Cota flexível'} · Ordem: {g.sort_order || 0}
@@ -488,7 +513,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setRsvpFilter('all')}
-                        className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                        className={`px-3 py-1 rounded-full text-xs font-medium border cursor-pointer ${
                           rsvpFilter === 'all'
                             ? 'bg-[#C67C4E] text-white border-[#C67C4E]'
                             : 'bg-white text-[#7A6A57] border-[#3A2E22]/15'
@@ -498,7 +523,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                       </button>
                       <button
                         onClick={() => setRsvpFilter('attending')}
-                        className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                        className={`px-3 py-1 rounded-full text-xs font-medium border cursor-pointer ${
                           rsvpFilter === 'attending'
                             ? 'bg-[#5C6748] text-white border-[#5C6748]'
                             : 'bg-white text-[#7A6A57] border-[#3A2E22]/15'
@@ -508,7 +533,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                       </button>
                       <button
                         onClick={() => setRsvpFilter('not_attending')}
-                        className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                        className={`px-3 py-1 rounded-full text-xs font-medium border cursor-pointer ${
                           rsvpFilter === 'not_attending'
                             ? 'bg-[#A25A32] text-white border-[#A25A32]'
                             : 'bg-white text-[#7A6A57] border-[#3A2E22]/15'
@@ -530,34 +555,60 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                   {filteredRsvps.length === 0 ? (
                     <p className="text-center py-8 text-xs text-[#7A6A57]">Nenhuma confirmação encontrada.</p>
                   ) : (
-                    <div className="space-y-2">
-                      {filteredRsvps.map(r => (
-                        <div
-                          key={r.id}
-                          className="p-3.5 bg-white border border-[#3A2E22]/15 rounded-md flex flex-col gap-1 text-xs"
-                        >
-                          <div className="flex justify-between items-center">
-                            <strong className="text-sm text-[#3A2E22]">{r.name}</strong>
-                            <span
-                              className={`px-2 py-0.5 rounded-full font-semibold ${
-                                r.attending
-                                  ? 'bg-[#7C8862]/15 text-[#5C6748]'
-                                  : 'bg-red-100 text-red-700'
-                              }`}
-                            >
-                              {r.attending ? `Vai (${r.guests} ${r.guests === 1 ? 'pessoa' : 'pessoas'})` : 'Não vai'}
+                    <div className="space-y-2.5">
+                      {filteredRsvps.map(r => {
+                        const cleanDigits = cleanPhoneBR(r.phone || '');
+                        const waLink = cleanDigits ? `https://wa.me/55${cleanDigits}?text=${encodeURIComponent(`Olá ${r.name}, aqui é do casamento de Iasmin & Gutenberg!`)}` : null;
+
+                        return (
+                          <div
+                            key={r.id}
+                            className="p-3.5 bg-white border border-[#3A2E22]/15 rounded-md flex flex-col gap-1.5 text-xs shadow-2xs"
+                          >
+                            <div className="flex justify-between items-center">
+                              <strong className="text-sm text-[#3A2E22]">{r.name}</strong>
+                              <span
+                                className={`px-2.5 py-0.5 rounded-full font-semibold ${
+                                  r.attending
+                                    ? 'bg-[#7C8862]/15 text-[#5C6748]'
+                                    : 'bg-red-100 text-red-700'
+                                }`}
+                              >
+                                {r.attending ? 'Confirmado individual' : 'Não vai'}
+                              </span>
+                            </div>
+
+                            {/* Phone / WhatsApp bar */}
+                            <div className="flex items-center gap-3 text-[#7A6A57]">
+                              <div className="flex items-center gap-1 font-mono">
+                                <Phone className="w-3.5 h-3.5 text-[#C67C4E]" />
+                                <span>{r.phone || 'Sem telefone registrado'}</span>
+                              </div>
+                              {waLink && (
+                                <a
+                                  href={waLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-[11px] text-[#5C6748] hover:text-[#3A2E22] font-semibold underline"
+                                >
+                                  <span>Abrir WhatsApp</span>
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              )}
+                            </div>
+
+                            {r.message && (
+                              <p className="text-[#7A6A57] italic bg-[#FCF9F3] p-2 rounded border border-[#3A2E22]/10 mt-0.5">
+                                "{r.message}"
+                              </p>
+                            )}
+
+                            <span className="text-[10px] text-[#7A6A57]/70 mt-0.5">
+                              {formatDateBR(r.created_at)}
                             </span>
                           </div>
-                          {r.message && (
-                            <p className="text-[#7A6A57] italic bg-[#FCF9F3] p-2 rounded border border-[#3A2E22]/10 mt-1">
-                              "{r.message}"
-                            </p>
-                          )}
-                          <span className="text-[10px] text-[#7A6A57]/70 mt-0.5">
-                            {formatDateBR(r.created_at)}
-                          </span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -566,11 +617,65 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               {/* ================= TAB 3: ORDERS ================= */}
               {activeTab === 'orders' && (
                 <div>
-                  <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-[#7A6A57]">
-                        Total arrecadado: <strong className="text-[#A25A32] text-sm font-bold">{formatBRL(totalRaisedCents)}</strong>
+                  {/* Financial Summary Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                    <div className="p-3 bg-white border border-[#3A2E22]/15 rounded-md">
+                      <span className="text-[11px] text-[#7A6A57] uppercase font-semibold">Total Confirmado / Aprovado</span>
+                      <p className="text-lg font-bold text-[#5C6748] font-serif-display mt-0.5">
+                        {formatBRL(totalRaisedCents)}
+                      </p>
+                      <span className="text-[10px] text-[#7A6A57]">{countApproved} presente(s) confirmados</span>
+                    </div>
+
+                    <div className="p-3 bg-amber-50/70 border border-amber-300/80 rounded-md">
+                      <span className="text-[11px] text-amber-900 uppercase font-semibold flex items-center gap-1">
+                        <Clock className="w-3 h-3 text-amber-700" />
+                        Aguardando Sua Confirmação
                       </span>
+                      <p className="text-lg font-bold text-amber-900 font-serif-display mt-0.5">
+                        {formatBRL(totalAwaitingCents)}
+                      </p>
+                      <span className="text-[10px] text-amber-800">{countAwaiting} presente(s) para conferir</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        onClick={() => setOrderFilter('all')}
+                        className={`px-2.5 py-1 rounded text-xs font-medium border cursor-pointer ${
+                          orderFilter === 'all' ? 'bg-[#C67C4E] text-white border-[#C67C4E]' : 'bg-white text-[#7A6A57] border-[#3A2E22]/15'
+                        }`}
+                      >
+                        Todos ({orders.length})
+                      </button>
+                      <button
+                        onClick={() => setOrderFilter('awaiting_confirmation')}
+                        className={`px-2.5 py-1 rounded text-xs font-medium border cursor-pointer flex items-center gap-1 ${
+                          orderFilter === 'awaiting_confirmation'
+                            ? 'bg-amber-600 text-white border-amber-600'
+                            : 'bg-white text-amber-900 border-amber-300'
+                        }`}
+                      >
+                        <Clock className="w-3 h-3" />
+                        <span>Aguardando ({countAwaiting})</span>
+                      </button>
+                      <button
+                        onClick={() => setOrderFilter('approved')}
+                        className={`px-2.5 py-1 rounded text-xs font-medium border cursor-pointer ${
+                          orderFilter === 'approved' ? 'bg-[#5C6748] text-white border-[#5C6748]' : 'bg-white text-[#7A6A57] border-[#3A2E22]/15'
+                        }`}
+                      >
+                        Aprovados ({countApproved})
+                      </button>
+                      <button
+                        onClick={() => setOrderFilter('rejected')}
+                        className={`px-2.5 py-1 rounded text-xs font-medium border cursor-pointer ${
+                          orderFilter === 'rejected' ? 'bg-red-700 text-white border-red-700' : 'bg-white text-[#7A6A57] border-[#3A2E22]/15'
+                        }`}
+                      >
+                        Recusados ({countRejected})
+                      </button>
                     </div>
 
                     <button
@@ -583,54 +688,124 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                   </div>
 
                   {filteredOrders.length === 0 ? (
-                    <p className="text-center py-8 text-xs text-[#7A6A57]">Nenhum pedido de presente registrado ainda.</p>
+                    <p className="text-center py-8 text-xs text-[#7A6A57]">Nenhum pedido de presente nesta categoria.</p>
                   ) : (
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       {filteredOrders.map(o => {
                         const giftObj = gifts.find(g => g.id === o.gift_id);
+                        const isAwaiting = o.status === 'awaiting_confirmation' || o.status === 'pending';
+                        const isApproved = o.status === 'approved';
+                        const isRejected = o.status === 'rejected';
+
                         return (
                           <div
                             key={o.id}
-                            className="p-3.5 bg-white border border-[#3A2E22]/15 rounded-md flex flex-col gap-1.5 text-xs"
+                            className={`p-4 bg-white border rounded-md flex flex-col gap-2.5 text-xs shadow-2xs ${
+                              isAwaiting
+                                ? 'border-amber-300 bg-amber-50/30'
+                                : isApproved
+                                ? 'border-[#7C8862]/30'
+                                : 'border-red-200 opacity-75'
+                            }`}
                           >
-                            <div className="flex justify-between items-center">
+                            <div className="flex justify-between items-start">
                               <div>
-                                <strong className="text-sm text-[#3A2E22]">
+                                <h5 className="text-sm font-semibold text-[#3A2E22]">
                                   {giftObj ? giftObj.name : o.gift_id}
-                                </strong>
-                                <span className="ml-2 font-bold text-[#A25A32] font-serif-display">
+                                </h5>
+                                <span className="font-bold text-[#A25A32] font-serif-display text-base">
                                   {formatBRL(o.amount_cents)}
                                 </span>
                               </div>
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-2">
                                 <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 bg-[#FCF9F3] border border-[#3A2E22]/15 rounded text-[#7A6A57]">
-                                  {o.payment_method === 'card' ? 'Cartão Stripe' : 'Pix Instantâneo'}
+                                  {o.payment_method === 'card' || o.payment_method === 'stripe' ? 'Cartão Stripe' : 'Pix Instantâneo'}
                                 </span>
-                                <span
-                                  className={`px-2 py-0.5 rounded-full font-semibold text-[10px] ${
-                                    o.status === 'approved'
-                                      ? 'bg-[#7C8862]/15 text-[#5C6748]'
-                                      : 'bg-[#C67C4E]/15 text-[#A25A32]'
-                                  }`}
-                                >
-                                  {o.status === 'approved' ? 'Aprovado' : 'Pendente'}
-                                </span>
+                                {isApproved && (
+                                  <span className="px-2.5 py-0.5 rounded-full font-semibold text-[11px] bg-[#7C8862]/15 text-[#5C6748]">
+                                    ✓ Aprovado / Confirmado
+                                  </span>
+                                )}
+                                {isAwaiting && (
+                                  <span className="px-2.5 py-0.5 rounded-full font-semibold text-[11px] bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
+                                    <Clock className="w-3 h-3 text-amber-700" />
+                                    Aguardando Confirmação
+                                  </span>
+                                )}
+                                {isRejected && (
+                                  <span className="px-2.5 py-0.5 rounded-full font-semibold text-[11px] bg-red-100 text-red-700">
+                                    ✕ Recusado / Liberado
+                                  </span>
+                                )}
                               </div>
                             </div>
 
                             <p className="text-[#3A2E22]">
-                              Presenteado por: <strong>{o.buyer_name}</strong>
+                              Comprador: <strong>{o.buyer_name}</strong>
                             </p>
 
                             {o.buyer_message && (
-                              <p className="text-[#7A6A57] italic bg-[#FCF9F3] p-2 rounded border border-[#3A2E22]/10">
+                              <p className="text-[#7A6A57] italic bg-[#FCF9F3] p-2.5 rounded border border-[#3A2E22]/10">
                                 "{o.buyer_message}"
                               </p>
                             )}
 
-                            <span className="text-[10px] text-[#7A6A57]/70">
-                              {formatDateBR(o.created_at)}
-                            </span>
+                            <div className="flex flex-wrap justify-between items-center border-t border-[#3A2E22]/10 pt-2.5 text-[10px] text-[#7A6A57] gap-2">
+                              <span>ID: {o.id} · {formatDateBR(o.created_at)}</span>
+
+                              {/* Action buttons */}
+                              <div className="flex items-center gap-2">
+                                {isAwaiting && (
+                                  <>
+                                    <button
+                                      onClick={() => handleToggleOrderStatus(o.id, 'approved')}
+                                      disabled={loadingAction}
+                                      className="px-3 py-1.5 bg-[#5C6748] hover:bg-[#485337] text-white rounded text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 shadow-2xs"
+                                    >
+                                      <Check className="w-3 h-3" />
+                                      <span>Aprovar Pix (Confirmar)</span>
+                                    </button>
+                                    <button
+                                      onClick={() => handleToggleOrderStatus(o.id, 'rejected')}
+                                      disabled={loadingAction}
+                                      className="px-2.5 py-1.5 border border-red-300 text-red-700 hover:bg-red-50 rounded text-[11px] font-medium transition-all cursor-pointer"
+                                      title="Libera o presente para outros convidados comprarem"
+                                    >
+                                      Recusar / Liberar Presente
+                                    </button>
+                                  </>
+                                )}
+
+                                {isApproved && (
+                                  <>
+                                    <button
+                                      onClick={() => handleToggleOrderStatus(o.id, 'awaiting_confirmation')}
+                                      disabled={loadingAction}
+                                      className="px-2 py-1 border border-amber-300 text-amber-800 hover:bg-amber-50 rounded text-[10px] cursor-pointer"
+                                    >
+                                      Reverter p/ Aguardando
+                                    </button>
+                                    <button
+                                      onClick={() => handleToggleOrderStatus(o.id, 'rejected')}
+                                      disabled={loadingAction}
+                                      className="px-2 py-1 border border-red-200 text-red-600 hover:bg-red-50 rounded text-[10px] cursor-pointer"
+                                    >
+                                      Cancelar / Liberar Presente
+                                    </button>
+                                  </>
+                                )}
+
+                                {isRejected && (
+                                  <button
+                                    onClick={() => handleToggleOrderStatus(o.id, 'approved')}
+                                    disabled={loadingAction}
+                                    className="px-3 py-1 bg-[#5C6748] text-white hover:bg-[#485337] rounded text-[11px] font-semibold cursor-pointer"
+                                  >
+                                    Reativar e Aprovar
+                                  </button>
+                                )}
+                              </div>
+                            </div>
                           </div>
                         );
                       })}
@@ -644,7 +819,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 <div className="space-y-4">
                   <div className="p-4 bg-white border border-[#3A2E22]/15 rounded-md text-xs">
                     <h5 className="font-semibold text-sm text-[#3A2E22] mb-2 flex items-center gap-1.5">
-                      <Key className="w-4 h-4 text-[#C67C4E]" />
+                      <Settings className="w-4 h-4 text-[#C67C4E]" />
                       <span>Status do Stripe (Cartão de Crédito)</span>
                     </h5>
                     <p className="text-[#7A6A57] mb-2">
@@ -663,8 +838,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                   </div>
 
                   <div className="p-4 bg-white border border-[#3A2E22]/15 rounded-md text-xs">
-                    <h5 className="font-semibold text-sm text-[#3A2E22] mb-2">Pix dos Noivos</h5>
-                    <p className="text-[#7A6A57]">
+                    <h5 className="font-semibold text-sm text-[#3A2E22] mb-2">Chave Pix dos Noivos</h5>
+                    <p className="text-[#7A6A57] leading-relaxed">
                       Chave: <strong>gutenberg23@gmail.com</strong><br />
                       Beneficiário: <strong>Iasmin e Gutenberg</strong><br />
                       Cidade: <strong>Rio de Janeiro</strong>

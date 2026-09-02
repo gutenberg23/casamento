@@ -108,9 +108,9 @@ export const GiftRegistrySection: React.FC<GiftRegistrySectionProps> = ({ gifts,
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {filteredGifts.map(gift => {
               const isApproved = gift.order_status === 'approved';
-              const isPending = gift.order_status === 'pending';
+              const isAwaiting = gift.order_status === 'awaiting_confirmation' || gift.order_status === 'pending';
               const isTaken = gift.unique_item && isApproved;
-              const isAwaiting = gift.unique_item && isPending;
+              const isLockedAwaiting = gift.unique_item && isAwaiting;
 
               return (
                 <div
@@ -118,6 +118,8 @@ export const GiftRegistrySection: React.FC<GiftRegistrySectionProps> = ({ gifts,
                   className={`bg-[#FCF9F3] border rounded-md p-6 flex flex-col justify-between transition-all duration-200 ${
                     isTaken
                       ? 'border-[#3A2E22]/10 opacity-75'
+                      : isLockedAwaiting
+                      ? 'border-amber-700/30 bg-[#FAF5EE]'
                       : 'border-[#3A2E22]/15 hover:border-[#C67C4E]/50 hover:shadow-sm'
                   }`}
                 >
@@ -127,12 +129,12 @@ export const GiftRegistrySection: React.FC<GiftRegistrySectionProps> = ({ gifts,
                       {isTaken ? (
                         <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[#C67C4E]/15 text-[#A25A32]">
                           <Heart className="w-3 h-3 fill-current" />
-                          Escolhido por {gift.buyer_name || 'Convidado'}
+                          Presenteado por {gift.buyer_name || 'Convidado'}
                         </span>
-                      ) : isAwaiting ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-full bg-[#C67C4E]/10 text-[#7A6A57]">
-                          <Clock className="w-3 h-3" />
-                          Pagamento em processamento
+                      ) : isLockedAwaiting ? (
+                        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-300/60">
+                          <Clock className="w-3 h-3 text-amber-700 animate-pulse" />
+                          {gift.buyer_name ? `Escolhido por ${gift.buyer_name} · Aguardando confirmação` : 'Aguardando confirmação'}
                         </span>
                       ) : gift.unique_item ? (
                         <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-full bg-[#7C8862]/15 text-[#5C6748]">
@@ -172,12 +174,13 @@ export const GiftRegistrySection: React.FC<GiftRegistrySectionProps> = ({ gifts,
                       >
                         Já foi presenteado
                       </button>
-                    ) : isAwaiting ? (
+                    ) : isLockedAwaiting ? (
                       <button
                         disabled
-                        className="w-full py-2.5 px-4 rounded border border-[#3A2E22]/15 text-[#7A6A57] bg-[#EFE3D0]/40 text-xs font-semibold cursor-not-allowed text-center"
+                        className="w-full py-2.5 px-4 rounded border border-amber-300 text-amber-900 bg-amber-50/80 text-xs font-semibold cursor-not-allowed text-center flex items-center justify-center gap-1.5"
                       >
-                        Aguardando confirmação
+                        <Clock className="w-3.5 h-3.5 text-amber-700" />
+                        <span>Aguardando confirmação</span>
                       </button>
                     ) : (
                       <button

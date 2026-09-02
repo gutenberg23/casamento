@@ -39,7 +39,7 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
 
   const fireConfetti = () => {
     confetti({
-      particleCount: 80,
+      particleCount: 85,
       spread: 70,
       origin: { y: 0.6 },
       colors: ['#C67C4E', '#7C8862', '#E7C0AC', '#A25A32']
@@ -79,27 +79,57 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
         }
       }
 
-      // Método Pix Instantâneo
-      const txid = `IG${Date.now().toString().slice(-8)}`;
-      const payload = generatePixPayload({
-        key: DEFAULT_PIX_KEY,
-        name: DEFAULT_PIX_RECEIVER,
-        city: DEFAULT_PIX_CITY,
-        amount: finalAmountCents / 100,
-        txid
-      });
+      // Método Pix Instantâneo: Cria o pedido no backend imediatamente
+      let generatedOrderId = `order_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      let generatedPixCode = '';
+      let generatedQrUrl = '';
 
-      const qrUrl = getPixQrCodeUrl(payload, 280);
-      const newOrderId = `order_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      try {
+        const pixRes = await createPayment({
+          gift_id: gift.id,
+          buyer_name: buyerName.trim(),
+          amount_cents: finalAmountCents,
+          payment_method: 'pix_direct',
+          buyer_message: buyerMessage.trim() || undefined
+        });
 
-      setPixPayload(payload);
-      setPixQrUrl(qrUrl);
-      setPendingOrderId(newOrderId);
+        if (pixRes.order_id) {
+          generatedOrderId = pixRes.order_id;
+        }
+        if (pixRes.pix_code) {
+          generatedPixCode = pixRes.pix_code;
+        }
+        if (pixRes.qr_code_url) {
+          generatedQrUrl = pixRes.qr_code_url;
+        }
+      } catch (e) {
+        console.warn('Fallback gerando Pix no client-side:', e);
+      }
+
+      // Se por algum motivo o backend não retornou o pixCode, gera com o gerador padrão BACEN
+      if (!generatedPixCode) {
+        const txid = `IG${Date.now().toString().slice(-8)}`;
+        generatedPixCode = generatePixPayload({
+          key: DEFAULT_PIX_KEY,
+          name: DEFAULT_PIX_RECEIVER,
+          city: DEFAULT_PIX_CITY,
+          amount: finalAmountCents / 100,
+          txid
+        });
+      }
+
+      if (!generatedQrUrl) {
+        generatedQrUrl = getPixQrCodeUrl(generatedPixCode, 280);
+      }
+
+      setPixPayload(generatedPixCode);
+      setPixQrUrl(generatedQrUrl);
+      setPendingOrderId(generatedOrderId);
       setStep('pix');
     } catch (err: any) {
       console.error('Erro ao iniciar pagamento:', err);
       setErrorMessage(
-        err.message || 'Houve um imprevisto ao conectar ao processador de pagamento. Tente novamente ou use o Pix Direto.'
+        err.message || 'Houve um imprevisto ao conectar ao processador de pagamento. Tente novamente.'
       );
     } finally {
       setLoading(false);
@@ -128,9 +158,9 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
       await confirmPixOrder(
         pendingOrderId || `order_${Date.now()}`,
         gift.id,
-        buyerName,
+        buyerName.trim(),
         finalAmountCents,
-        buyerMessage
+        buyerMessage.trim() || undefined
       );
       fireConfetti();
       setStep('success');
@@ -152,7 +182,7 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
       >
         <button
           onClick={onClose}
-          className="absolute top-5 right-5 text-[#7A6A57] hover:text-[#3A2E22] transition-colors p-1"
+          className="absolute top-5 right-5 text-[#7A6A57] hover:text-[#3A2E22] transition-colors p-1 cursor-pointer"
           aria-label="Fechar"
         >
           <X className="w-5 h-5" />
@@ -194,7 +224,7 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
                       key={val}
                       type="button"
                       onClick={() => setCustomAmount(val)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all cursor-pointer ${
                         customAmount === val
                           ? 'bg-[#C67C4E] text-[#FCF9F3] border-[#C67C4E] font-semibold'
                           : 'bg-[#FCF9F3] text-[#7A6A57] border-[#3A2E22]/15 hover:border-[#C67C4E]'
@@ -289,7 +319,7 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
               <div className="bg-[#EFE3D0]/60 border border-[#3A2E22]/10 rounded-md p-3.5 mb-6 text-xs text-[#7A6A57] flex items-start gap-2.5">
                 <ShieldCheck className="w-4 h-4 text-[#5C6748] shrink-0 mt-0.5" />
                 <span>
-                  Você será redirecionado para a página oficial do <strong>Stripe</strong> com criptografia de ponta a ponta para pagar no cartão (Visa, Mastercard, Elo, Hipercard, Amex, Apple Pay, Google Pay).
+                  Você será redirecionado para a página oficial do <strong>Stripe</strong> com criptografia de ponta a ponta para pagar no cartão de crédito.
                 </span>
               </div>
             )}
@@ -415,12 +445,12 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
               {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Confirmando...</span>
+                  <span>Registrando confirmação...</span>
                 </>
               ) : (
                 <>
                   <Check className="w-4 h-4" />
-                  <span>Já realizei o Pix (Confirmar presente)</span>
+                  <span>Já realizei o Pix (Avisar os noivos)</span>
                 </>
               )}
             </button>
@@ -430,20 +460,27 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
         {/* ================= STEP 3: CELEBRATION ================= */}
         {step === 'success' && (
           <div className="text-center py-6">
-            <div className="w-14 h-14 bg-[#C67C4E]/15 rounded-full flex items-center justify-center mx-auto mb-4 text-[#A25A32]">
-              <Heart className="w-7 h-7 fill-current" />
+            <div className="w-14 h-14 bg-amber-100 border border-amber-300 rounded-full flex items-center justify-center mx-auto mb-4 text-amber-800">
+              <Clock className="w-7 h-7 animate-pulse text-amber-700" />
             </div>
 
             <h3 className="font-serif-display text-2xl sm:text-3xl font-semibold text-[#A25A32] mb-2">
-              Muito obrigado pelo presente!
+              Muito obrigado pelo carinho!
             </h3>
 
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-300/80 text-xs font-semibold mb-4">
+              <Clock className="w-3.5 h-3.5 text-amber-700" />
+              <span>Status: Aguardando confirmação</span>
+            </div>
+
             <p className="text-sm text-[#7A6A57] max-w-sm mx-auto leading-relaxed mb-6">
-              Seu carinho faz toda a diferença para o nosso novo lar. Iasmin &amp; Gutenberg agradecem de coração!
+              Sua contribuição para <strong>{gift.name}</strong> foi registrada! O item já ficou reservado na lista e os noivos irão validar o recebimento do Pix no painel.
             </p>
 
-            <div className="bg-[#EFE3D0]/60 border border-[#3A2E22]/10 rounded-md p-4 mb-6 text-xs text-[#3A2E22]">
-              Presente confirmado: <strong>{gift.name}</strong> em nome de <strong>{buyerName}</strong>.
+            <div className="bg-[#EFE3D0]/60 border border-[#3A2E22]/10 rounded-md p-4 mb-6 text-xs text-[#3A2E22] text-left space-y-1">
+              <p>Presente: <strong>{gift.name}</strong></p>
+              <p>Em nome de: <strong>{buyerName}</strong></p>
+              <p>Valor: <strong>{formatBRL(finalAmountCents)}</strong></p>
             </div>
 
             <button
