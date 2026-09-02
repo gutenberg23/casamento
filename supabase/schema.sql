@@ -45,6 +45,7 @@ create table if not exists gift_orders (
 );
 
 -- Adiciona colunas se a tabela já existia antes
+alter table gifts add column if not exists category text not null default 'Casa';
 alter table gift_orders add column if not exists payment_method text not null default 'pix_direct';
 alter table gift_orders add column if not exists buyer_message text;
 

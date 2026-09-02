@@ -70,14 +70,17 @@ export async function fetchGifts(): Promise<Gift[]> {
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) {
+        console.log(`[API] fetchGifts retornou ${data.length} presentes do servidor.`);
         saveLocalGifts(data);
         return data;
       }
     }
   } catch (e) {
-    console.warn('API /api/gifts indisponível, usando cache local:', e);
+    console.warn('[API] /api/gifts indisponível, usando cache local:', e);
   }
-  return getLocalGifts();
+  const local = getLocalGifts();
+  console.log(`[API] Utilizando presentes do cache local: ${local.length} itens.`);
+  return local;
 }
 
 export async function fetchRsvps(): Promise<Rsvp[]> {
@@ -86,12 +89,13 @@ export async function fetchRsvps(): Promise<Rsvp[]> {
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data)) {
+        console.log(`[API] fetchRsvps retornou ${data.length} confirmações.`);
         saveLocalRsvps(data);
         return data;
       }
     }
   } catch (e) {
-    console.warn('API /api/rsvps indisponível, usando cache local:', e);
+    console.warn('[API] /api/rsvps indisponível, usando cache local:', e);
   }
   return getLocalRsvps();
 }
@@ -107,6 +111,8 @@ export async function submitRsvp(payload: { name: string; phone: string; attendi
     created_at: new Date().toISOString()
   };
 
+  console.log('[API] Enviando confirmação RSVP:', newRsvp);
+
   try {
     const res = await fetch('/api/rsvps', {
       method: 'POST',
@@ -115,13 +121,14 @@ export async function submitRsvp(payload: { name: string; phone: string; attendi
     });
     if (res.ok) {
       const data = await res.json();
+      console.log('[API] RSVP salvo com sucesso no servidor:', data);
       const list = getLocalRsvps();
       list.unshift(data || newRsvp);
       saveLocalRsvps(list);
       return data || newRsvp;
     }
   } catch (e) {
-    console.warn('Fallback salvando RSVP localmente:', e);
+    console.warn('[API] Fallback salvando RSVP localmente:', e);
   }
 
   const list = getLocalRsvps();
@@ -136,12 +143,13 @@ export async function fetchOrders(): Promise<GiftOrder[]> {
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data)) {
+        console.log(`[API] fetchOrders retornou ${data.length} pedidos.`);
         saveLocalOrders(data);
         return data;
       }
     }
   } catch (e) {
-    console.warn('API /api/orders indisponível, usando cache local:', e);
+    console.warn('[API] /api/orders indisponível, usando cache local:', e);
   }
   return getLocalOrders();
 }
@@ -308,12 +316,19 @@ export interface PaymentGatewayStatus {
 }
 
 export async function checkStripeStatus(): Promise<PaymentGatewayStatus> {
-  const routes = ['/api/payment-status', '/api/stripe-status', '/.netlify/functions/stripe-status'];
+  const routes = [
+    '/api/payment-status',
+    '/api/stripe-status',
+    '/.netlify/functions/payment-status',
+    '/.netlify/functions/stripe-status'
+  ];
   for (const r of routes) {
     try {
       const res = await fetch(r);
       if (res.ok) {
-        return await res.json();
+        const data = await res.json();
+        console.log(`[PaymentStatus] Status obtido da rota ${r}:`, data);
+        return data;
       }
     } catch {}
   }
@@ -326,27 +341,36 @@ export async function adminUpdateOrderStatus(
   status: 'approved' | 'rejected' | 'pending' | 'awaiting_confirmation'
 ): Promise<GiftOrder[]> {
   const cleanCode = code.trim();
+  console.log('[Admin] Atualizando status do pedido:', { orderId, status });
   let updatedOrders: GiftOrder[] = [];
 
-  try {
-    const res = await fetch('/api/admin-orders', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-admin-code': cleanCode
-      },
-      body: JSON.stringify({ code: cleanCode, order_id: orderId, status })
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data?.orders)) {
-        updatedOrders = data.orders;
-        saveLocalOrders(data.orders);
+  const routes = ['/api/admin-orders', '/.netlify/functions/admin-orders'];
+  for (const route of routes) {
+    try {
+      const res = await fetch(route, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-code': cleanCode
+        },
+        body: JSON.stringify({ code: cleanCode, order_id: orderId, status })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data?.orders) && data.orders.length > 0) {
+          updatedOrders = data.orders;
+          saveLocalOrders(data.orders);
+          console.log('[Admin] Pedidos atualizados via servidor:', data.orders.length);
+          break;
+        }
       }
+    } catch (e) {
+      console.warn(`[Admin] Erro na rota ${route}:`, e);
     }
-  } catch {}
+  }
 
   if (updatedOrders.length === 0) {
+    console.log('[Admin] Atualizando pedido no armazenamento local...');
     const orders = getLocalOrders();
     const idx = orders.findIndex(o => o.id === orderId);
     if (idx >= 0) {
@@ -384,12 +408,22 @@ export async function adminUpdateOrderStatus(
   return updatedOrders;
 }
 
-export async function adminGiftsAction(code: string, action: 'list' | 'create' | 'update' | 'delete', gift?: Partial<Gift>): Promise<Gift[]> {
+export async function adminGiftsAction(
+  code: string,
+  action: 'list' | 'create' | 'update' | 'delete',
+  gift?: Partial<Gift>
+): Promise<Gift[]> {
   const cleanCode = code.trim();
+  console.log(`[Admin] Executando ação "${action}" no catálogo de presentes:`, gift);
+
+  let serverGifts: Gift[] | null = null;
+  let serverProcessedGift: any = null;
+
   const routes = ['/api/admin-gifts', '/.netlify/functions/admin-gifts'];
 
   for (const route of routes) {
     try {
+      console.log(`[Admin] Chamando endpoint administrativo: ${route}`);
       const res = await fetch(route, {
         method: 'POST',
         headers: {
@@ -399,49 +433,88 @@ export async function adminGiftsAction(code: string, action: 'list' | 'create' |
         body: JSON.stringify({ code: cleanCode, action, gift })
       });
 
+      console.log(`[Admin] Resposta do endpoint ${route} (${res.status})`);
+
       if (res.ok) {
         const data = await res.json();
-        if (data?.gifts && Array.isArray(data.gifts)) {
+        console.log(`[Admin] Dados retornados por ${route}:`, data);
+
+        if (data?.gifts && Array.isArray(data.gifts) && data.gifts.length > 0) {
+          serverGifts = data.gifts;
           saveLocalGifts(data.gifts);
+          console.log('[Admin] Lista de presentes sincronizada do servidor:', data.gifts);
           return data.gifts;
+        }
+
+        if (data?.processedGift) {
+          serverProcessedGift = data.processedGift;
+        }
+
+        if (data?.success) {
+          break; // Ação processada com sucesso no backend
         }
       } else {
         const data = await res.json().catch(() => null);
+        console.warn(`[Admin] Erro na resposta (${route}):`, data);
         if (data?.error && (res.status === 401 || res.status === 403)) {
           throw new Error(data.error);
         }
       }
     } catch (e: any) {
-      if (e.message && (e.message.includes('Código') || e.message.includes('incorreto') || e.message.includes('Senha'))) {
+      if (e.message && (e.message.includes('Código') || e.message.includes('incorreto') || e.message.includes('Senha') || e.message.includes('administração'))) {
         throw e;
       }
+      console.warn(`[Admin] Tentativa falhou em ${route}:`, e);
     }
   }
 
-  // Local fallback admin
-  if (cleanCode !== 'casamento2026' && cleanCode !== 'Gutoelement1!') {
-    throw new Error('Código incorreto.');
+  // Se o servidor retornou uma lista completa de presentes
+  if (serverGifts && serverGifts.length > 0) {
+    saveLocalGifts(serverGifts);
+    return serverGifts;
   }
 
+  // Atualização persistente no armazenamento local
+  console.log('[Admin] Aplicando alterações no cache local (localStorage)...');
   let gifts = [...getLocalGifts()];
-  if (action === 'list') return gifts;
-  if (action === 'create' && gift) {
-    const newG: Gift = {
-      id: gift.name ? gift.name.toLowerCase().replace(/[^a-z0-9]/g, '-') + '-' + Math.random().toString(36).substring(2, 5) : 'gift-' + Date.now(),
-      name: gift.name || 'Novo Presente',
-      description: gift.description || '',
-      price_cents: Number(gift.price_cents) || 10000,
-      unique_item: gift.unique_item !== false,
-      active: gift.active !== false,
-      sort_order: Number(gift.sort_order) || gifts.length + 1,
-      category: gift.category || 'Casa'
-    };
-    gifts.push(newG);
-  } else if (action === 'update' && gift && gift.id) {
-    gifts = gifts.map(g => (g.id === gift.id ? { ...g, ...gift } : g));
-  } else if (action === 'delete' && gift && gift.id) {
-    gifts = gifts.filter(g => g.id !== gift.id);
+
+  if (action === 'list') {
+    return gifts;
   }
+
+  if (action === 'create') {
+    const itemToCreate = serverProcessedGift || gift;
+    if (itemToCreate) {
+      const slugId = itemToCreate.id || (itemToCreate.name ? itemToCreate.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '-') + '-' + Math.random().toString(36).substring(2, 5) : 'gift-' + Date.now());
+      const newG: Gift = {
+        id: slugId,
+        name: itemToCreate.name || 'Novo Presente',
+        description: itemToCreate.description || '',
+        price_cents: Number(itemToCreate.price_cents) || 10000,
+        unique_item: itemToCreate.unique_item !== false,
+        active: itemToCreate.active !== false,
+        sort_order: Number(itemToCreate.sort_order) || (gifts.length + 1),
+        category: itemToCreate.category || 'Casa'
+      };
+      gifts.push(newG);
+      console.log('[Admin] Novo presente adicionado ao armazenamento local:', newG);
+    }
+  } else if (action === 'update') {
+    const itemToUpdate = serverProcessedGift || gift;
+    if (itemToUpdate && itemToUpdate.id) {
+      gifts = gifts.map(g => (g.id === itemToUpdate.id ? { ...g, ...itemToUpdate } : g));
+      console.log('[Admin] Presente atualizado no armazenamento local:', itemToUpdate);
+    }
+  } else if (action === 'delete') {
+    const itemToDelete = serverProcessedGift || gift;
+    if (itemToDelete && itemToDelete.id) {
+      gifts = gifts.filter(g => g.id !== itemToDelete.id);
+      console.log('[Admin] Presente removido do armazenamento local:', itemToDelete.id);
+    }
+  }
+
+  gifts.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
   saveLocalGifts(gifts);
+  console.log('[Admin] Catálogo de presentes atualizado:', gifts);
   return gifts;
 }

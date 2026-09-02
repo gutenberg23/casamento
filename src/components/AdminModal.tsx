@@ -65,19 +65,26 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
+    console.log('[AdminModal] Tentando autenticação com código fornecido...');
     try {
       const list = await adminGiftsAction(adminCodeInput, 'list');
+      console.log('[AdminModal] Login bem-sucedido! Presentes obtidos:', list);
       if (Array.isArray(list) && list.length > 0) {
         setAdminGifts(list);
       }
       setIsAuthenticated(true);
-      checkStripeStatus().then(setStripeDiagnostic);
+      checkStripeStatus().then(status => {
+        console.log('[AdminModal] Diagnóstico de pagamento:', status);
+        setStripeDiagnostic(status);
+      });
     } catch (err: any) {
+      console.error('[AdminModal] Erro ao autenticar no painel:', err);
       setAuthError(err.message || 'Código de acesso incorreto.');
     }
   };
 
   const handleOpenGiftForm = (gift?: Gift) => {
+    console.log('[AdminModal] Abrindo formulário de presente:', gift ? `Editando "${gift.name}"` : 'Novo presente');
     if (gift) {
       setEditingGift(gift);
       setGiftFormName(gift.name);
@@ -101,13 +108,31 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     setGiftFormSuccess('');
   };
 
-  const handleSaveGift = async () => {
+  const handleSaveGift = async (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    console.log('[AdminModal] handleSaveGift disparado! Dados do formulário:', {
+      editingGift,
+      giftFormName,
+      giftFormPrice,
+      giftFormDesc,
+      giftFormCategory,
+      giftFormUnique,
+      giftFormActive,
+      giftFormSort
+    });
+
     setGiftFormError('');
     setGiftFormSuccess('');
 
-    const priceNum = parseFloat(giftFormPrice);
+    const cleanPrice = giftFormPrice.trim().replace('R$', '').replace(/\s/g, '').replace(',', '.');
+    const priceNum = parseFloat(cleanPrice);
     if (!giftFormName.trim() || isNaN(priceNum) || priceNum <= 0) {
-      setGiftFormError('Preencha o nome e um preço válido em Reais.');
+      const errMsg = 'Preencha o nome e um preço válido em Reais.';
+      console.warn('[AdminModal] Validação falhou:', errMsg);
+      setGiftFormError(errMsg);
       return;
     }
 
@@ -125,14 +150,29 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       };
 
       const action = editingGift?.id ? 'update' : 'create';
+      console.log(`[AdminModal] Executando "${action}" com payload:`, payload);
+
       const updatedGifts = await adminGiftsAction(adminCodeInput, action, payload);
+      console.log('[AdminModal] Resposta de salvamento recebida com sucesso:', updatedGifts);
+
       if (Array.isArray(updatedGifts) && updatedGifts.length > 0) {
         setAdminGifts(updatedGifts);
+      } else {
+        // Atualização otimista defensiva
+        setAdminGifts(prev => {
+          if (action === 'create') {
+            return [...prev, { ...payload, id: payload.id || `gift-${Date.now()}` } as Gift];
+          }
+          return prev.map(g => (g.id === payload.id ? { ...g, ...payload } as Gift : g));
+        });
       }
+
       setGiftFormSuccess(editingGift?.id ? 'Presente atualizado com sucesso!' : 'Presente adicionado com sucesso!');
       setEditingGift(null);
-      onRefreshData();
+      await onRefreshData();
+      console.log('[AdminModal] onRefreshData disparado com sucesso.');
     } catch (err: any) {
+      console.error('[AdminModal] Erro ao salvar presente:', err);
       setGiftFormError(err.message || 'Erro ao salvar presente.');
     } finally {
       setLoadingAction(false);
@@ -141,14 +181,17 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
   const handleDeleteGift = async (id: string) => {
     if (!confirm('Deseja realmente remover este presente do catálogo?')) return;
+    console.log('[AdminModal] Excluindo presente id:', id);
     setLoadingAction(true);
     try {
       const updatedGifts = await adminGiftsAction(adminCodeInput, 'delete', { id });
+      console.log('[AdminModal] Presente excluído com sucesso:', updatedGifts);
       if (Array.isArray(updatedGifts)) {
         setAdminGifts(updatedGifts);
       }
-      onRefreshData();
+      await onRefreshData();
     } catch (err: any) {
+      console.error('[AdminModal] Erro ao excluir presente:', err);
       alert(err.message || 'Erro ao excluir presente.');
     } finally {
       setLoadingAction(false);
