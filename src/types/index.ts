@@ -1,3 +1,12 @@
+export interface GiftContributor {
+  id?: string;
+  buyer_name: string;
+  amount_cents?: number;
+  buyer_message?: string | null;
+  status?: string;
+  created_at?: string;
+}
+
 export interface Gift {
   id: string;
   name: string;
@@ -12,6 +21,8 @@ export interface Gift {
   order_status?: 'approved' | 'awaiting_confirmation' | 'pending' | 'rejected' | null;
   order_amount_cents?: number | null;
   category?: string;
+  contributors?: GiftContributor[];
+  contributors_count?: number;
 }
 
 export interface GiftOrder {

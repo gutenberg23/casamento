@@ -50,13 +50,24 @@ export async function handler(event) {
             matchingOrders.find(o => o.status === "awaiting_confirmation") ||
             matchingOrders.find(o => o.status === "pending");
 
+          const contributors = matchingOrders.map(o => ({
+            id: o.id,
+            buyer_name: o.buyer_name,
+            buyer_message: o.buyer_message,
+            amount_cents: o.amount_cents,
+            status: o.status,
+            created_at: o.created_at
+          }));
+
           return {
             ...g,
             order_id: activeOrder?.id || null,
             buyer_name: activeOrder?.buyer_name || null,
             order_status: activeOrder?.status || null,
             order_amount_cents: activeOrder?.amount_cents || null,
-            payment_method: activeOrder?.payment_method || null
+            payment_method: activeOrder?.payment_method || null,
+            contributors,
+            contributors_count: contributors.length
           };
         });
 

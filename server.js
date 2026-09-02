@@ -376,6 +376,15 @@ function getGiftStatusList() {
         giftMatchingOrders.find(o => o.status === "awaiting_confirmation") ||
         giftMatchingOrders.find(o => o.status === "pending" && (Date.now() - new Date(o.created_at).getTime() < 60 * 60 * 1000));
 
+      const contributors = giftMatchingOrders.map(o => ({
+        id: o.id,
+        buyer_name: o.buyer_name,
+        buyer_message: o.buyer_message,
+        amount_cents: o.amount_cents,
+        status: o.status,
+        created_at: o.created_at
+      }));
+
       return {
         ...g,
         order_id: activeOrder ? activeOrder.id : null,
@@ -383,6 +392,8 @@ function getGiftStatusList() {
         order_status: activeOrder ? activeOrder.status : null,
         order_amount_cents: activeOrder ? activeOrder.amount_cents : null,
         payment_method: activeOrder ? activeOrder.payment_method : null,
+        contributors,
+        contributors_count: contributors.length
       };
     })
     .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));

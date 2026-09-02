@@ -138,20 +138,40 @@ export async function submitRsvp(payload: { name: string; phone: string; attendi
 }
 
 export async function fetchOrders(): Promise<GiftOrder[]> {
-  try {
-    const res = await fetch('/api/orders', { cache: 'no-store' });
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        console.log(`[API] fetchOrders retornou ${data.length} pedidos.`);
-        saveLocalOrders(data);
-        return data;
+  const routes = ['/api/orders', '/.netlify/functions/orders'];
+  let serverOrders: GiftOrder[] | null = null;
+
+  for (const route of routes) {
+    try {
+      const res = await fetch(route, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          console.log(`[API] fetchOrders retornou ${data.length} pedidos de ${route}.`);
+          serverOrders = data;
+          break;
+        }
       }
+    } catch (e) {
+      console.warn(`[API] Erro ao consultar ${route}:`, e);
     }
-  } catch (e) {
-    console.warn('[API] /api/orders indisponível, usando cache local:', e);
   }
-  return getLocalOrders();
+
+  const local = getLocalOrders();
+  if (serverOrders) {
+    const map = new Map<string, GiftOrder>();
+    // Prioriza os pedidos locais caso estejam em estado recente
+    local.forEach(o => map.set(o.id, o));
+    // Sobrescreve com os dados do servidor (Supabase)
+    serverOrders.forEach(o => map.set(o.id, o));
+    const merged = Array.from(map.values()).sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    saveLocalOrders(merged);
+    return merged;
+  }
+
+  return local;
 }
 
 export async function createPayment(params: {
@@ -205,26 +225,30 @@ export async function confirmPixOrder(
     updated_at: new Date().toISOString()
   };
 
-  try {
-    const res = await fetch('/api/confirm-pix-order', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        order_id: orderId,
-        gift_id: giftId,
-        buyer_name: buyerName.trim(),
-        amount_cents: amountCents,
-        buyer_message: buyerMessage?.trim() || null
-      })
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data?.order) {
-        Object.assign(order, data.order);
+  const routes = ['/api/confirm-pix-order', '/.netlify/functions/confirm-pix-order'];
+  for (const route of routes) {
+    try {
+      const res = await fetch(route, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: orderId,
+          gift_id: giftId,
+          buyer_name: buyerName.trim(),
+          amount_cents: amountCents,
+          buyer_message: buyerMessage?.trim() || null
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.order) {
+          Object.assign(order, data.order);
+        }
+        break;
       }
+    } catch (e) {
+      console.warn(`[API] Erro ao chamar ${route}:`, e);
     }
-  } catch (e) {
-    console.warn('Erro ao chamar /api/confirm-pix-order:', e);
   }
 
   // Atualiza pedidos no cache local
@@ -245,8 +269,20 @@ export async function confirmPixOrder(
       gifts[giftIndex].order_status = 'awaiting_confirmation';
       gifts[giftIndex].buyer_name = buyerName.trim();
       gifts[giftIndex].order_id = orderId;
-      saveLocalGifts(gifts);
     }
+    // Adiciona o contribuinte ao array de contribuintes
+    const prevContributors = gifts[giftIndex].contributors || [];
+    const newContrib = {
+      id: orderId,
+      buyer_name: buyerName.trim(),
+      amount_cents: amountCents,
+      buyer_message: buyerMessage?.trim() || null,
+      status: 'awaiting_confirmation',
+      created_at: order.created_at
+    };
+    gifts[giftIndex].contributors = [newContrib, ...prevContributors.filter(c => c.id !== orderId)];
+    gifts[giftIndex].contributors_count = gifts[giftIndex].contributors.length;
+    saveLocalGifts(gifts);
   }
 
   return order;

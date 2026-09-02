@@ -71,6 +71,7 @@ export const App: React.FC = () => {
         {/* 4. Gift Registry (Filters, Search, Status Badges & Checkout Trigger) */}
         <GiftRegistrySection
           gifts={gifts}
+          orders={orders}
           onSelectGift={gift => setSelectedGift(gift)}
         />
 

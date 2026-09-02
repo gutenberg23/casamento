@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Gift, GiftOrder, Rsvp } from '../types';
 import { formatBRL, formatDateBR, exportToCSV, cleanPhoneBR } from '../utils/formatters';
-import { adminGiftsAction, checkStripeStatus, adminUpdateOrderStatus } from '../services/api';
-import { X, Lock, Gift as GiftIcon, Users, ShoppingBag, Settings, Plus, Edit2, Trash2, Download, Check, AlertCircle, Phone, MessageSquare, ExternalLink, Clock, EyeOff } from 'lucide-react';
+import { adminGiftsAction, checkStripeStatus, adminUpdateOrderStatus, fetchOrders } from '../services/api';
+import { X, Lock, Gift as GiftIcon, Users, ShoppingBag, Settings, Plus, Edit2, Trash2, Download, Check, AlertCircle, Phone, MessageSquare, ExternalLink, Clock, EyeOff, RefreshCw } from 'lucide-react';
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -28,12 +28,13 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [authError, setAuthError] = useState('');
   const [activeTab, setActiveTab] = useState<'gifts' | 'rsvps' | 'orders' | 'settings'>('gifts');
   const [adminGifts, setAdminGifts] = useState<Gift[]>(gifts || []);
+  const [adminOrders, setAdminOrders] = useState<GiftOrder[]>(orders || []);
+  const [loadingOrders, setLoadingOrders] = useState(false);
 
   // Sync gifts when prop changes or on open
   useEffect(() => {
     if (gifts && gifts.length > 0) {
       setAdminGifts(prev => {
-        // Keep inactive items if we already had them in adminGifts
         const activeIds = new Set(gifts.map(g => g.id));
         const keptInactives = prev.filter(p => p.active === false && !activeIds.has(p.id));
         const merged = [...gifts, ...keptInactives];
@@ -41,6 +42,33 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       });
     }
   }, [gifts]);
+
+  // Sync orders when prop changes
+  useEffect(() => {
+    if (orders && orders.length > 0) {
+      setAdminOrders(orders);
+    }
+  }, [orders]);
+
+  const refreshOrdersList = async () => {
+    setLoadingOrders(true);
+    try {
+      const latest = await fetchOrders();
+      if (Array.isArray(latest)) {
+        setAdminOrders(latest);
+      }
+    } catch (e) {
+      console.warn('[AdminModal] Erro ao recarregar pedidos:', e);
+    } finally {
+      setLoadingOrders(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated && activeTab === 'orders') {
+      refreshOrdersList();
+    }
+  }, [isAuthenticated, activeTab]);
 
   // Gift Form state
   const [editingGift, setEditingGift] = useState<Partial<Gift> | null>(null);
@@ -73,6 +101,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         setAdminGifts(list);
       }
       setIsAuthenticated(true);
+      refreshOrdersList();
       checkStripeStatus().then(status => {
         console.log('[AdminModal] Diagnóstico de pagamento:', status);
         setStripeDiagnostic(status);
@@ -200,11 +229,15 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
   const handleToggleOrderStatus = async (orderId: string, newStatus: 'approved' | 'rejected' | 'pending' | 'awaiting_confirmation') => {
     setLoadingAction(true);
+    // Atualização otimista imediata
+    setAdminOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
     try {
       await adminUpdateOrderStatus(adminCodeInput, orderId, newStatus);
+      await refreshOrdersList();
       onRefreshData();
     } catch (e: any) {
       alert(e.message || 'Erro ao alterar status do pedido.');
+      await refreshOrdersList();
     } finally {
       setLoadingAction(false);
     }
@@ -223,7 +256,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   };
 
   const handleExportOrders = () => {
-    const data = orders.map(o => ({
+    const data = adminOrders.map(o => ({
       ID_Pedido: o.id,
       Presente_ID: o.gift_id,
       Comprador: o.buyer_name,
@@ -244,22 +277,22 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
   const totalConfirmedPeople = rsvps.filter(r => r.attending).length;
 
-  const countAwaiting = orders.filter(o => o.status === 'awaiting_confirmation' || o.status === 'pending').length;
-  const countApproved = orders.filter(o => o.status === 'approved').length;
-  const countRejected = orders.filter(o => o.status === 'rejected').length;
+  const countAwaiting = adminOrders.filter(o => o.status === 'awaiting_confirmation' || o.status === 'pending').length;
+  const countApproved = adminOrders.filter(o => o.status === 'approved').length;
+  const countRejected = adminOrders.filter(o => o.status === 'rejected').length;
 
-  const filteredOrders = orders.filter(o => {
+  const filteredOrders = adminOrders.filter(o => {
     if (orderFilter === 'awaiting_confirmation') return o.status === 'awaiting_confirmation' || o.status === 'pending';
     if (orderFilter === 'approved') return o.status === 'approved';
     if (orderFilter === 'rejected') return o.status === 'rejected';
     return true;
   });
 
-  const totalRaisedCents = orders
+  const totalRaisedCents = adminOrders
     .filter(o => o.status === 'approved')
     .reduce((sum, o) => sum + (o.amount_cents || 0), 0);
 
-  const totalAwaitingCents = orders
+  const totalAwaitingCents = adminOrders
     .filter(o => o.status === 'awaiting_confirmation' || o.status === 'pending')
     .reduce((sum, o) => sum + (o.amount_cents || 0), 0);
 
@@ -518,62 +551,73 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
                   {/* Gifts List */}
                   <div className="space-y-2">
-                    {(adminGifts.length > 0 ? adminGifts : gifts).map(g => (
-                      <div
-                        key={g.id}
-                        className={`p-3.5 rounded-md border flex items-center justify-between gap-3 ${
-                          g.active === false
-                            ? 'bg-[#FCF9F3]/60 border-[#3A2E22]/10 opacity-70'
-                            : 'bg-white border-[#3A2E22]/15'
-                        }`}
-                      >
-                        <div className="flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <strong className="text-sm text-[#3A2E22]">{g.name}</strong>
-                            <span className="text-xs font-bold text-[#A25A32] font-serif-display">
-                              {formatBRL(g.price_cents)}
-                            </span>
-                            {g.active === false && (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 font-semibold flex items-center gap-1">
-                                <EyeOff className="w-2.5 h-2.5" />
-                                Oculto no site
-                              </span>
-                            )}
-                            {g.order_status === 'approved' && (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#C67C4E]/15 text-[#A25A32] font-semibold">
-                                Presenteado ({g.buyer_name || 'Convidado'})
-                              </span>
-                            )}
-                            {(g.order_status === 'awaiting_confirmation' || (g.unique_item && g.order_status === 'pending')) && (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 font-semibold flex items-center gap-1">
-                                <Clock className="w-2.5 h-2.5 text-amber-700" />
-                                Aguardando confirmação ({g.buyer_name || 'Convidado'})
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs text-[#7A6A57] line-clamp-1 mt-0.5">
-                            {g.description || 'Sem descrição'} · Categoria: {g.category || 'Casa'} · {g.unique_item ? 'Item único' : 'Cota flexível'} · Ordem: {g.sort_order || 0}
-                          </p>
-                        </div>
+                    {(adminGifts.length > 0 ? adminGifts : gifts).map(g => {
+                      const matchingOrders = adminOrders.filter(o => o.gift_id === g.id && o.status !== 'rejected');
+                      const contribCount = (g.contributors && g.contributors.length > 0) ? g.contributors.length : matchingOrders.length;
 
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            onClick={() => handleOpenGiftForm(g)}
-                            className="p-1.5 rounded border border-[#3A2E22]/15 text-[#7A6A57] hover:text-[#3A2E22] hover:border-[#C67C4E] transition-all cursor-pointer"
-                            title="Editar"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteGift(g.id)}
-                            className="p-1.5 rounded border border-[#3A2E22]/15 text-red-600 hover:border-red-400 transition-all cursor-pointer"
-                            title="Excluir"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                      return (
+                        <div
+                          key={g.id}
+                          className={`p-3.5 rounded-md border flex items-center justify-between gap-3 ${
+                            g.active === false
+                              ? 'bg-[#FCF9F3]/60 border-[#3A2E22]/10 opacity-70'
+                              : 'bg-white border-[#3A2E22]/15'
+                          }`}
+                        >
+                          <div className="flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <strong className="text-sm text-[#3A2E22]">{g.name}</strong>
+                              <span className="text-xs font-bold text-[#A25A32] font-serif-display">
+                                {formatBRL(g.price_cents)}
+                              </span>
+                              {g.active === false && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 font-semibold flex items-center gap-1">
+                                  <EyeOff className="w-2.5 h-2.5" />
+                                  Oculto no site
+                                </span>
+                              )}
+                              {g.order_status === 'approved' && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#C67C4E]/15 text-[#A25A32] font-semibold">
+                                  Presenteado ({g.buyer_name || 'Convidado'})
+                                </span>
+                              )}
+                              {(g.order_status === 'awaiting_confirmation' || (g.unique_item && g.order_status === 'pending')) && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 font-semibold flex items-center gap-1">
+                                  <Clock className="w-2.5 h-2.5 text-amber-700" />
+                                  Aguardando confirmação ({g.buyer_name || 'Convidado'})
+                                </span>
+                              )}
+                              {!g.unique_item && contribCount > 0 && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#7C8862]/15 text-[#5C6748] font-semibold flex items-center gap-1">
+                                  <Users className="w-2.5 h-2.5" />
+                                  {contribCount} {contribCount === 1 ? 'contribuinte' : 'contribuintes'}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-[#7A6A57] line-clamp-1 mt-0.5">
+                              {g.description || 'Sem descrição'} · Categoria: {g.category || 'Casa'} · {g.unique_item ? 'Item único' : 'Cota flexível'} · Ordem: {g.sort_order || 0}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              onClick={() => handleOpenGiftForm(g)}
+                              className="p-1.5 rounded border border-[#3A2E22]/15 text-[#7A6A57] hover:text-[#3A2E22] hover:border-[#C67C4E] transition-all cursor-pointer"
+                              title="Editar"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteGift(g.id)}
+                              className="p-1.5 rounded border border-[#3A2E22]/15 text-red-600 hover:border-red-400 transition-all cursor-pointer"
+                              title="Excluir"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -711,7 +755,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
+                    <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <button
                         onClick={() => setOrderFilter('all')}
@@ -719,7 +763,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                           orderFilter === 'all' ? 'bg-[#C67C4E] text-white border-[#C67C4E]' : 'bg-white text-[#7A6A57] border-[#3A2E22]/15'
                         }`}
                       >
-                        Todos ({orders.length})
+                        Todos ({adminOrders.length})
                       </button>
                       <button
                         onClick={() => setOrderFilter('awaiting_confirmation')}
@@ -750,13 +794,24 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                       </button>
                     </div>
 
-                    <button
-                      onClick={handleExportOrders}
-                      className="py-1.5 px-3 rounded border border-[#3A2E22]/15 bg-white text-xs font-semibold text-[#3A2E22] hover:border-[#C67C4E] flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Exportar CSV</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={refreshOrdersList}
+                        disabled={loadingOrders}
+                        className="py-1.5 px-3 rounded border border-[#3A2E22]/15 bg-white text-xs font-semibold text-[#3A2E22] hover:border-[#C67C4E] flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                        title="Recarregar lista de pedidos do servidor"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${loadingOrders ? 'animate-spin text-[#C67C4E]' : ''}`} />
+                        <span>{loadingOrders ? 'Atualizando...' : 'Recarregar'}</span>
+                      </button>
+                      <button
+                        onClick={handleExportOrders}
+                        className="py-1.5 px-3 rounded border border-[#3A2E22]/15 bg-white text-xs font-semibold text-[#3A2E22] hover:border-[#C67C4E] flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Exportar CSV</span>
+                      </button>
+                    </div>
                   </div>
 
                   {filteredOrders.length === 0 ? (

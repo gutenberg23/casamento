@@ -92,6 +92,46 @@ const headers = {
   "Content-Type": "application/json"
 };
 
+function generatePixPayload({ key, name, city, amount, txid }) {
+  const cleanKey = String(key).trim();
+  const cleanName = String(name).normalize("NFD").replace(/[\u0300-\u036f]/g, "").slice(0, 25);
+  const cleanCity = String(city).normalize("NFD").replace(/[\u0300-\u036f]/g, "").slice(0, 15);
+  const cleanTxid = String(txid || "***").replace(/[^a-zA-Z0-9]/g, "").slice(0, 25) || "***";
+
+  function emv(id, val) {
+    const s = String(val);
+    const len = s.length.toString().padStart(2, "0");
+    return `${id}${len}${s}`;
+  }
+
+  const gui = emv("00", "br.gov.bcb.pix");
+  const keyField = emv("01", cleanKey);
+  const mai = emv("26", `${gui}${keyField}`);
+  const cat = emv("52", "0000");
+  const curr = emv("53", "986");
+  const amt = amount && amount > 0 ? emv("54", Number(amount).toFixed(2)) : "";
+  const country = emv("58", "BR");
+  const merchantName = emv("59", cleanName);
+  const merchantCity = emv("60", cleanCity);
+  const addData = emv("62", emv("05", cleanTxid));
+
+  const payload = `${emv("00", "01")}${mai}${cat}${curr}${amt}${country}${merchantName}${merchantCity}${addData}6304`;
+
+  let crc = 0xffff;
+  for (let i = 0; i < payload.length; i++) {
+    crc ^= payload.charCodeAt(i) << 8;
+    for (let j = 0; j < 8; j++) {
+      if ((crc & 0x8000) !== 0) {
+        crc = ((crc << 1) ^ 0x1021) & 0xffff;
+      } else {
+        crc = (crc << 1) & 0xffff;
+      }
+    }
+  }
+  const crcHex = crc.toString(16).toUpperCase().padStart(4, "0");
+  return payload + crcHex;
+}
+
 export async function handler(event, context) {
   if (event.httpMethod === "OPTIONS") {
     return {
@@ -124,21 +164,12 @@ export async function handler(event, context) {
       };
     }
 
+    const PIX_KEY = process.env.PIX_KEY || "gutenberg23@gmail.com";
+    const PIX_RECEIVER_NAME = process.env.PIX_RECEIVER_NAME || "Iasmin e Gutenberg";
+    const PIX_RECEIVER_CITY = process.env.PIX_RECEIVER_CITY || "Rio de Janeiro";
+
     const stripeKey = getStripeSecretKey();
     const mpToken = getMercadoPagoAccessToken();
-
-    if (!stripeKey && !mpToken) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({
-          error: "Nem a chave do Mercado Pago (MERCADO_PAGO_ACCESS_TOKEN) nem a do Stripe (STRIPE_SECRET_KEY) foram encontradas no ambiente do Netlify.",
-          stripe_missing: true,
-          mercadopago_missing: true,
-          env_keys_found: Object.keys(process.env).filter(k => !k.toLowerCase().includes("key") && !k.toLowerCase().includes("secret"))
-        })
-      };
-    }
 
     // Busca detalhes do presente
     let gift = defaultGifts.find(g => g.id === gift_id);
@@ -176,6 +207,68 @@ export async function handler(event, context) {
     const orderId = `order_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const origin = event.headers.origin || event.headers.referer || "https://iasminegutenberg.com.br";
     const cleanOrigin = origin.split("?")[0].replace(/\/$/, "");
+
+    // 0. Pix Direto Instantâneo
+    if (payment_method === "pix_direct" || (!payment_method && !stripeKey && !mpToken)) {
+      const pixCode = generatePixPayload({
+        key: PIX_KEY,
+        name: PIX_RECEIVER_NAME,
+        city: PIX_RECEIVER_CITY,
+        amount: finalAmount / 100,
+        txid: orderId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 20)
+      });
+      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=10&data=${encodeURIComponent(pixCode)}`;
+
+      // Registra pedido prévio no Supabase
+      if (SUPABASE_URL && SUPABASE_KEY) {
+        try {
+          await fetch(`${SUPABASE_URL}/rest/v1/gift_orders`, {
+            method: "POST",
+            headers: {
+              apikey: SUPABASE_KEY,
+              Authorization: `Bearer ${SUPABASE_KEY}`,
+              "Content-Type": "application/json",
+              Prefer: "resolution=merge-duplicates"
+            },
+            body: JSON.stringify({
+              id: orderId,
+              gift_id,
+              buyer_name: buyer_name.trim(),
+              buyer_message: buyer_message ? String(buyer_message).trim() : null,
+              amount_cents: finalAmount,
+              payment_method: "pix_direct",
+              status: "pending",
+              created_at: new Date().toISOString()
+            })
+          });
+        } catch (e) {}
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          provider: "pix_direct",
+          order_id: orderId,
+          amount_cents: finalAmount,
+          pix_code: pixCode,
+          qr_code_url: qrCodeUrl
+        })
+      };
+    }
+
+    if (!stripeKey && !mpToken) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({
+          error: "Nem a chave do Mercado Pago (MERCADO_PAGO_ACCESS_TOKEN) nem a do Stripe (STRIPE_SECRET_KEY) foram encontradas no ambiente do Netlify.",
+          stripe_missing: true,
+          mercadopago_missing: true,
+          env_keys_found: Object.keys(process.env).filter(k => !k.toLowerCase().includes("key") && !k.toLowerCase().includes("secret"))
+        })
+      };
+    }
 
     // 1. Mercado Pago Checkout Pro (se o método for mercadopago ou se mpToken estiver disponível)
     const useMercadoPago = payment_method === "mercadopago" || (mpToken && payment_method !== "stripe");
