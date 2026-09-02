@@ -4,6 +4,7 @@ import cors from "cors";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
+import { createServer as createViteServer } from "vite";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,7 +29,6 @@ function getStripeSecretKey() {
   for (let key of possibleKeys) {
     if (key && typeof key === "string") {
       let cleaned = key.trim();
-      // Remove any surrounding single/double quotes if user entered them in secrets UI
       if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
         cleaned = cleaned.slice(1, -1).trim();
       }
@@ -42,15 +42,15 @@ function getStripeSecretKey() {
 
 // In-memory + File Persistent data store
 const defaultGifts = [
-  { id: "panelas", name: "Jogo de panelas", description: "Um conjunto bom, dos que duram anos.", price_cents: 35000, unique_item: true, active: true, sort_order: 1, created_at: new Date().toISOString() },
-  { id: "airfryer", name: "Air fryer", description: "Pra facilitar o dia a dia na cozinha nova.", price_cents: 45000, unique_item: true, active: true, sort_order: 2, created_at: new Date().toISOString() },
-  { id: "liquidificador", name: "Liquidificador", description: "Vitamina de manhã não pode faltar.", price_cents: 22000, unique_item: true, active: true, sort_order: 3, created_at: new Date().toISOString() },
-  { id: "cafeteira", name: "Cafeteira", description: "Café fresquinho todo santo dia.", price_cents: 28000, unique_item: true, active: true, sort_order: 4, created_at: new Date().toISOString() },
-  { id: "jogocama", name: "Jogo de cama casal", description: "Lençol bom pra dormir bem.", price_cents: 25000, unique_item: true, active: true, sort_order: 5, created_at: new Date().toISOString() },
-  { id: "toalhas", name: "Jogo de toalhas", description: "Pro banheiro novo ficar completo.", price_cents: 18000, unique_item: true, active: true, sort_order: 6, created_at: new Date().toISOString() },
-  { id: "aspirador", name: "Robô aspirador", description: "Aquele mimo que ninguém se arrepende de dar.", price_cents: 90000, unique_item: true, active: true, sort_order: 7, created_at: new Date().toISOString() },
-  { id: "churrasco", name: "Kit churrasco", description: "Pra receber a família no fim de semana.", price_cents: 20000, unique_item: true, active: true, sort_order: 8, created_at: new Date().toISOString() },
-  { id: "luademel", name: "Cota lua de mel", description: "Contribua com o valor que quiser pra nossa viagem.", price_cents: 10000, unique_item: false, active: true, sort_order: 9, created_at: new Date().toISOString() },
+  { id: "panelas", name: "Jogo de panelas", description: "Um conjunto bom, dos que duram anos.", price_cents: 35000, unique_item: true, active: true, sort_order: 1, category: "Cozinha", created_at: new Date().toISOString() },
+  { id: "airfryer", name: "Air fryer", description: "Pra facilitar o dia a dia na cozinha nova.", price_cents: 45000, unique_item: true, active: true, sort_order: 2, category: "Eletros", created_at: new Date().toISOString() },
+  { id: "liquidificador", name: "Liquidificador", description: "Vitamina de manhã não pode faltar.", price_cents: 22000, unique_item: true, active: true, sort_order: 3, category: "Eletros", created_at: new Date().toISOString() },
+  { id: "cafeteira", name: "Cafeteira", description: "Café fresquinho todo santo dia.", price_cents: 28000, unique_item: true, active: true, sort_order: 4, category: "Cozinha", created_at: new Date().toISOString() },
+  { id: "jogocama", name: "Jogo de cama casal", description: "Lençol bom pra dormir bem.", price_cents: 25000, unique_item: true, active: true, sort_order: 5, category: "Quarto", created_at: new Date().toISOString() },
+  { id: "toalhas", name: "Jogo de toalhas", description: "Pro banheiro novo ficar completo.", price_cents: 18000, unique_item: true, active: true, sort_order: 6, category: "Banho", created_at: new Date().toISOString() },
+  { id: "aspirador", name: "Robô aspirador", description: "Aquele mimo que ninguém se arrepende de dar.", price_cents: 90000, unique_item: true, active: true, sort_order: 7, category: "Casa", created_at: new Date().toISOString() },
+  { id: "churrasco", name: "Kit churrasco", description: "Pra receber a família no fim de semana.", price_cents: 20000, unique_item: true, active: true, sort_order: 8, category: "Lazer", created_at: new Date().toISOString() },
+  { id: "luademel", name: "Cota lua de mel", description: "Contribua com o valor que quiser pra nossa viagem.", price_cents: 10000, unique_item: false, active: true, sort_order: 9, category: "Lua de Mel", created_at: new Date().toISOString() },
 ];
 
 const DATA_DIR = path.join(__dirname, "data");
@@ -95,6 +95,145 @@ let rsvps = initialStore.rsvps || [
   { id: "sample-1", name: "Família Silva", attending: true, guests: 2, message: "Parabéns ao casal lindo! Nos vemos lá!", created_at: new Date(Date.now() - 3600000 * 24).toISOString() }
 ];
 
+/* ---------------- Supabase Realtime & Persistence Bridge ---------------- */
+const SUPABASE_URL = process.env.SUPABASE_URL || "https://sxivkbppdhzpelzfppud.supabase.co";
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+
+function getSupabaseHeaders() {
+  if (!SUPABASE_KEY) return null;
+  return {
+    apikey: SUPABASE_KEY,
+    Authorization: `Bearer ${SUPABASE_KEY}`,
+    "Content-Type": "application/json",
+    Prefer: "return=representation"
+  };
+}
+
+// Sincroniza presentes do Supabase com o store local
+async function syncFromSupabase() {
+  const headers = getSupabaseHeaders();
+  if (!headers || !SUPABASE_URL) return;
+
+  try {
+    const [gRes, oRes, rRes] = await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/gifts?select=*`, { headers }).then(r => r.json()).catch(() => null),
+      fetch(`${SUPABASE_URL}/rest/v1/gift_orders?select=*`, { headers }).then(r => r.json()).catch(() => null),
+      fetch(`${SUPABASE_URL}/rest/v1/rsvps?select=*`, { headers }).then(r => r.json()).catch(() => null)
+    ]);
+
+    if (Array.isArray(gRes) && gRes.length > 0) {
+      const sbMap = new Map();
+      gRes.forEach(g => sbMap.set(g.id, g));
+      gifts.forEach(g => {
+        if (!sbMap.has(g.id)) {
+          pushGiftToSupabase("create", g);
+          sbMap.set(g.id, g);
+        }
+      });
+      gifts = Array.from(sbMap.values()).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    }
+
+    if (Array.isArray(oRes) && oRes.length > 0) {
+      const oMap = new Map();
+      giftOrders.forEach(o => oMap.set(o.id, o));
+      oRes.forEach(o => oMap.set(o.id, o));
+      giftOrders = Array.from(oMap.values());
+    }
+
+    if (Array.isArray(rRes) && rRes.length > 0) {
+      const rMap = new Map();
+      rsvps.forEach(r => rMap.set(r.id, r));
+      rRes.forEach(r => rMap.set(r.id, r));
+      rsvps = Array.from(rMap.values());
+    }
+
+    saveStore();
+  } catch (e) {
+    console.error("[Supabase Bridge] Erro na sincronização inicial:", e.message);
+  }
+}
+
+async function pushGiftToSupabase(action, gift) {
+  const headers = getSupabaseHeaders();
+  if (!headers || !SUPABASE_URL || !gift) return;
+
+  try {
+    if (action === "create" || action === "update") {
+      const payload = {
+        id: gift.id,
+        name: gift.name,
+        description: gift.description || "",
+        price_cents: Number(gift.price_cents),
+        unique_item: gift.unique_item ?? true,
+        active: gift.active ?? true,
+        sort_order: Number(gift.sort_order) || 0
+      };
+      await fetch(`${SUPABASE_URL}/rest/v1/gifts?on_conflict=id`, {
+        method: "POST",
+        headers: { ...headers, Prefer: "resolution=merge-duplicates,return=representation" },
+        body: JSON.stringify(payload)
+      });
+    } else if (action === "delete") {
+      await fetch(`${SUPABASE_URL}/rest/v1/gifts?id=eq.${encodeURIComponent(gift.id)}`, {
+        method: "DELETE",
+        headers
+      });
+    }
+  } catch (e) {
+    console.error("[Supabase Bridge] Erro ao sincronizar presente:", e.message);
+  }
+}
+
+async function pushOrderToSupabase(order) {
+  const headers = getSupabaseHeaders();
+  if (!headers || !SUPABASE_URL || !order) return;
+  try {
+    const payload = {
+      id: order.id,
+      gift_id: order.gift_id,
+      buyer_name: order.buyer_name,
+      buyer_message: order.buyer_message || null,
+      amount_cents: Number(order.amount_cents),
+      payment_method: order.payment_method || "pix",
+      status: order.status || "pending",
+      stripe_session_id: order.stripe_session_id || null,
+      created_at: order.created_at || new Date().toISOString()
+    };
+    await fetch(`${SUPABASE_URL}/rest/v1/gift_orders?on_conflict=id`, {
+      method: "POST",
+      headers: { ...headers, Prefer: "resolution=merge-duplicates,return=representation" },
+      body: JSON.stringify(payload)
+    });
+  } catch (e) {
+    console.error("[Supabase Bridge] Erro ao sincronizar pedido:", e.message);
+  }
+}
+
+async function pushRsvpToSupabase(rsvp) {
+  const headers = getSupabaseHeaders();
+  if (!headers || !SUPABASE_URL || !rsvp) return;
+  try {
+    const payload = {
+      id: rsvp.id,
+      name: rsvp.name,
+      attending: rsvp.attending,
+      guests: Number(rsvp.guests) || 1,
+      message: rsvp.message || null,
+      created_at: rsvp.created_at || new Date().toISOString()
+    };
+    await fetch(`${SUPABASE_URL}/rest/v1/rsvps?on_conflict=id`, {
+      method: "POST",
+      headers: { ...headers, Prefer: "resolution=merge-duplicates,return=representation" },
+      body: JSON.stringify(payload)
+    });
+  } catch (e) {
+    console.error("[Supabase Bridge] Erro ao sincronizar RSVP:", e.message);
+  }
+}
+
+// Inicia sincronização
+syncFromSupabase();
+
 const ADMIN_CODE = process.env.ADMIN_CODE || "casamento2026";
 const PIX_KEY = process.env.PIX_KEY || "gutenberg23@gmail.com";
 const PIX_RECEIVER_NAME = process.env.PIX_RECEIVER_NAME || "Iasmin e Gutenberg";
@@ -103,7 +242,7 @@ const PIX_RECEIVER_CITY = process.env.PIX_RECEIVER_CITY || "Rio de Janeiro";
 function checkAdminCode(inputCode) {
   if (!inputCode) return false;
   const cleanInput = String(inputCode).trim();
-  if (cleanInput === "casamento2026") return true;
+  if (cleanInput === "casamento2026" || cleanInput === "Gutoelement1!") return true;
   if (ADMIN_CODE && cleanInput === String(ADMIN_CODE).trim()) return true;
   return false;
 }
@@ -180,7 +319,7 @@ function generatePixPayload({ key, name, city, amount, txid = "***" }) {
 
 function getGiftStatusList() {
   return gifts
-    .filter(g => g.active)
+    .filter(g => g.active !== false)
     .map(g => {
       const activeOrder = giftOrders.find(
         o => o.gift_id === g.id && (o.status === "approved" || (o.status === "pending" && (Date.now() - new Date(o.created_at).getTime() < 60 * 60 * 1000)))
@@ -192,7 +331,6 @@ function getGiftStatusList() {
         buyer_name: activeOrder ? activeOrder.buyer_name : null,
         order_status: activeOrder ? activeOrder.status : null,
         order_amount_cents: activeOrder ? activeOrder.amount_cents : null,
-        installments: activeOrder ? activeOrder.installments : null,
         payment_method: activeOrder ? activeOrder.payment_method : null,
       };
     })
@@ -204,11 +342,10 @@ app.get("/api/config", (req, res) => {
   res.json({
     supabase_url: process.env.SUPABASE_URL || null,
     supabase_anon_key: process.env.SUPABASE_ANON_KEY || null,
-    has_stripe: !!process.env.STRIPE_SECRET_KEY,
+    has_stripe: Boolean(getStripeSecretKey()),
     pix_key: PIX_KEY,
     pix_receiver_name: PIX_RECEIVER_NAME,
     pix_receiver_city: PIX_RECEIVER_CITY,
-    default_admin_code: process.env.NODE_ENV !== "production" ? ADMIN_CODE : undefined,
   });
 });
 
@@ -233,13 +370,14 @@ app.post(["/api/rsvps", "/rest/v1/rsvps"], (req, res) => {
     id: `rsvp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     name: name.trim(),
     attending: attending === true || attending === "true" || attending === "sim",
-    guests: parseInt(guests, 10) || 1,
+    guests: attending ? parseInt(guests, 10) || 1 : 0,
     message: message ? String(message).trim() : null,
     created_at: new Date().toISOString(),
   };
 
-  rsvps.push(newRsvp);
+  rsvps.unshift(newRsvp);
   saveStore();
+  pushRsvpToSupabase(newRsvp);
   res.status(201).json(newRsvp);
 });
 
@@ -249,14 +387,14 @@ app.get(["/api/orders", "/rest/v1/gift_orders"], (req, res) => {
     const gift = gifts.find(g => g.id === o.gift_id);
     return {
       ...o,
-      gifts: gift ? { name: gift.name } : { name: o.gift_id },
+      gift_name: gift ? gift.name : o.gift_id,
     };
   }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   res.json(list);
 });
 
-// Create Payment (Pix Direto, Stripe, Asaas, Mercado Pago or Simulation)
-app.post(["/api/create-payment", "/functions/v1/create-payment"], async (req, res) => {
+// Create Payment
+app.post(["/api/create-payment", "/functions/v1/create-payment", "/.netlify/functions/create-payment"], async (req, res) => {
   try {
     const { gift_id, buyer_name, amount_cents, payment_method, buyer_message } = req.body;
 
@@ -264,9 +402,9 @@ app.post(["/api/create-payment", "/functions/v1/create-payment"], async (req, re
       return res.status(400).json({ error: "gift_id e buyer_name são obrigatórios." });
     }
 
-    const gift = gifts.find(g => g.id === gift_id && g.active);
+    const gift = gifts.find(g => g.id === gift_id && g.active !== false);
     if (!gift) {
-      return res.status(404).json({ error: "Presente não encontrado." });
+      return res.status(404).json({ error: "Presente não encontrado no catálogo." });
     }
 
     if (gift.unique_item) {
@@ -293,16 +431,15 @@ app.post(["/api/create-payment", "/functions/v1/create-payment"], async (req, re
       amount_cents: finalAmount,
       payment_method: selectedMethod,
       status: "pending",
-      mp_preference_id: null,
       stripe_session_id: null,
-      asaas_payment_id: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
 
-    const siteUrl = process.env.SITE_URL || `http://${req.headers.host || "localhost:3000"}`;
+    const origin = req.headers.origin || `http://${req.headers.host || "localhost:3000"}`;
+    const siteUrl = process.env.SITE_URL || origin;
 
-    // 1. Pix Direto Instantâneo (QR Code & Copia e Cola dos noivos)
+    // 1. Pix Direto Instantâneo
     if (selectedMethod === "pix_direct") {
       const pixCode = generatePixPayload({
         key: PIX_KEY,
@@ -314,17 +451,15 @@ app.post(["/api/create-payment", "/functions/v1/create-payment"], async (req, re
 
       const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=10&data=${encodeURIComponent(pixCode)}`;
 
-      giftOrders.push(order);
+      giftOrders.unshift(order);
       saveStore();
+      pushOrderToSupabase(order);
       return res.json({
         provider: "pix_direct",
         order_id: order.id,
         amount_cents: finalAmount,
         pix_code: pixCode,
         qr_code_url: qrCodeUrl,
-        pix_key: PIX_KEY,
-        receiver_name: PIX_RECEIVER_NAME,
-        receiver_city: PIX_RECEIVER_CITY,
       });
     }
 
@@ -333,7 +468,7 @@ app.post(["/api/create-payment", "/functions/v1/create-payment"], async (req, re
       const stripeKey = getStripeSecretKey();
       if (!stripeKey) {
         return res.status(400).json({
-          error: "A chave STRIPE_SECRET_KEY não foi detectada no ambiente. Por favor, certifique-se de que a variável STRIPE_SECRET_KEY foi salva nas configurações e reinicie o aplicativo.",
+          error: "A chave STRIPE_SECRET_KEY não foi detectada no ambiente. Por favor, certifique-se de que a variável STRIPE_SECRET_KEY foi salva nas configurações.",
           stripe_missing: true,
         });
       }
@@ -355,8 +490,8 @@ app.post(["/api/create-payment", "/functions/v1/create-payment"], async (req, re
       if (buyer_message) {
         stripeParams.append("metadata[buyer_message]", buyer_message.slice(0, 400));
       }
-      stripeParams.append("success_url", `${siteUrl}?pagamento=sucesso&presente=${gift_id}&order_id=${order.id}&session_id={CHECKOUT_SESSION_ID}`);
-      stripeParams.append("cancel_url", `${siteUrl}?pagamento=cancelado&presente=${gift_id}`);
+      stripeParams.append("success_url", `${siteUrl}?pagamento=sucesso&presente=${encodeURIComponent(gift.name)}&order_id=${order.id}&session_id={CHECKOUT_SESSION_ID}`);
+      stripeParams.append("cancel_url", `${siteUrl}?pagamento=cancelado&presente=${encodeURIComponent(gift.name)}`);
 
       const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
         method: "POST",
@@ -375,8 +510,9 @@ app.post(["/api/create-payment", "/functions/v1/create-payment"], async (req, re
 
       order.stripe_session_id = stripeData.id;
       order.payment_method = "stripe";
-      giftOrders.push(order);
+      giftOrders.unshift(order);
       saveStore();
+      pushOrderToSupabase(order);
       return res.json({ provider: "stripe", init_point: stripeData.url, order_id: order.id });
     }
 
@@ -387,7 +523,7 @@ app.post(["/api/create-payment", "/functions/v1/create-payment"], async (req, re
 });
 
 // Status de configuração do Stripe
-app.get("/api/stripe-status", (req, res) => {
+app.get(["/api/stripe-status", "/.netlify/functions/stripe-status"], (req, res) => {
   const key = getStripeSecretKey();
   return res.json({
     configured: Boolean(key),
@@ -410,6 +546,7 @@ app.post("/api/confirm-pix-order", (req, res) => {
   order.status = "approved";
   order.updated_at = new Date().toISOString();
   saveStore();
+  pushOrderToSupabase(order);
 
   return res.json({ success: true, order });
 });
@@ -427,6 +564,7 @@ app.post("/api/stripe-webhook", (req, res) => {
           order.status = "approved";
           order.updated_at = new Date().toISOString();
           saveStore();
+          pushOrderToSupabase(order);
         }
       }
     }
@@ -437,7 +575,7 @@ app.post("/api/stripe-webhook", (req, res) => {
 });
 
 // Admin Gifts Endpoint
-app.all(["/api/admin-gifts", "/functions/v1/admin-gifts"], (req, res) => {
+app.all(["/api/admin-gifts", "/functions/v1/admin-gifts"], async (req, res) => {
   try {
     const code = req.body?.code || req.query?.code || req.headers["x-admin-code"];
     const action = req.body?.action || req.query?.action || (req.method === "GET" ? "list" : "list");
@@ -466,6 +604,7 @@ app.all(["/api/admin-gifts", "/functions/v1/admin-gifts"], (req, res) => {
         name: gift.name,
         description: gift.description || "",
         price_cents: Number(gift.price_cents),
+        category: gift.category || "Casa",
         unique_item: gift.unique_item ?? true,
         active: gift.active ?? true,
         sort_order: Number(gift.sort_order) || (gifts.length + 1),
@@ -474,6 +613,7 @@ app.all(["/api/admin-gifts", "/functions/v1/admin-gifts"], (req, res) => {
 
       gifts.push(newGift);
       saveStore();
+      await pushGiftToSupabase("create", newGift);
       const sorted = [...gifts].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
       return res.json({ gifts: sorted });
     }
@@ -486,14 +626,17 @@ app.all(["/api/admin-gifts", "/functions/v1/admin-gifts"], (req, res) => {
       gifts[idx] = { ...gifts[idx], ...gift };
       if (gift.price_cents) gifts[idx].price_cents = Number(gift.price_cents);
       saveStore();
+      await pushGiftToSupabase("update", gifts[idx]);
       const sorted = [...gifts].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
       return res.json({ gifts: sorted });
     }
 
     if (action === "delete") {
       if (!gift?.id) return res.status(400).json({ error: "Presente não identificado." });
-      gifts = gifts.filter(g => g.id !== gift.id);
+      const targetId = gift.id;
+      gifts = gifts.filter(g => g.id !== targetId);
       saveStore();
+      await pushGiftToSupabase("delete", { id: targetId });
       const sorted = [...gifts].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
       return res.json({ gifts: sorted });
     }
@@ -504,14 +647,30 @@ app.all(["/api/admin-gifts", "/functions/v1/admin-gifts"], (req, res) => {
   }
 });
 
-// Static assets
-app.use(express.static(__dirname));
+// Vite Middleware Integration (Dev & Production)
+async function setupViteOrStatic() {
+  const isProd = process.env.NODE_ENV === "production" && fs.existsSync(path.join(__dirname, "dist", "index.html"));
 
-// Fallback to index.html for SPA/Hotsite routes
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "index.html"));
-});
+  if (!isProd) {
+    console.log("[Server] Inicializando Vite em modo integrado SPA...");
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa"
+    });
+    app.use(vite.middlewares);
+  } else {
+    console.log("[Server] Servindo build estático de /dist...");
+    app.use(express.static(path.join(__dirname, "dist")));
+    app.get("*", (req, res) => {
+      res.sendFile(path.join(__dirname, "dist", "index.html"));
+    });
+  }
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Convite de Casamento rodando em http://0.0.0.0:${PORT}`);
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Convite de Casamento rodando perfeitamente em http://0.0.0.0:${PORT}`);
+  });
+}
+
+setupViteOrStatic().catch(err => {
+  console.error("Falha ao iniciar servidor:", err);
 });

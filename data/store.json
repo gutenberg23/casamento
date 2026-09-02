@@ -8,7 +8,7 @@
       "unique_item": true,
       "active": true,
       "sort_order": 1,
-      "created_at": "2026-09-01T19:44:46.323Z"
+      "created_at": "2026-09-01T18:10:01.411325+00:00"
     },
     {
       "id": "airfryer",
@@ -18,7 +18,7 @@
       "unique_item": true,
       "active": true,
       "sort_order": 2,
-      "created_at": "2026-09-01T19:44:46.323Z"
+      "created_at": "2026-09-01T18:10:01.411325+00:00"
     },
     {
       "id": "liquidificador",
@@ -28,7 +28,7 @@
       "unique_item": true,
       "active": true,
       "sort_order": 3,
-      "created_at": "2026-09-01T19:44:46.323Z"
+      "created_at": "2026-09-01T18:10:01.411325+00:00"
     },
     {
       "id": "cafeteira",
@@ -38,7 +38,7 @@
       "unique_item": true,
       "active": true,
       "sort_order": 4,
-      "created_at": "2026-09-01T19:44:46.323Z"
+      "created_at": "2026-09-01T18:10:01.411325+00:00"
     },
     {
       "id": "jogocama",
@@ -48,7 +48,7 @@
       "unique_item": true,
       "active": true,
       "sort_order": 5,
-      "created_at": "2026-09-01T19:44:46.323Z"
+      "created_at": "2026-09-01T18:10:01.411325+00:00"
     },
     {
       "id": "toalhas",
@@ -58,7 +58,7 @@
       "unique_item": true,
       "active": true,
       "sort_order": 6,
-      "created_at": "2026-09-01T19:44:46.323Z"
+      "created_at": "2026-09-01T18:10:01.411325+00:00"
     },
     {
       "id": "aspirador",
@@ -68,7 +68,7 @@
       "unique_item": true,
       "active": true,
       "sort_order": 7,
-      "created_at": "2026-09-01T19:44:46.323Z"
+      "created_at": "2026-09-01T18:10:01.411325+00:00"
     },
     {
       "id": "churrasco",
@@ -78,7 +78,7 @@
       "unique_item": true,
       "active": true,
       "sort_order": 8,
-      "created_at": "2026-09-01T19:44:46.323Z"
+      "created_at": "2026-09-01T18:10:01.411325+00:00"
     },
     {
       "id": "luademel",
@@ -88,7 +88,7 @@
       "unique_item": false,
       "active": true,
       "sort_order": 9,
-      "created_at": "2026-09-01T19:44:46.323Z"
+      "created_at": "2026-09-01T18:10:01.411325+00:00"
     },
     {
       "id": "faqueiro-inox",
@@ -98,7 +98,7 @@
       "unique_item": true,
       "active": true,
       "sort_order": 10,
-      "created_at": "2026-09-01T19:44:47.844Z"
+      "created_at": "2026-09-01T22:23:23.236621+00:00"
     }
   ],
   "giftOrders": [
@@ -115,6 +115,34 @@
       "asaas_payment_id": null,
       "created_at": "2026-09-01T22:13:10.835Z",
       "updated_at": "2026-09-01T22:13:10.835Z"
+    },
+    {
+      "id": "order_1788301196030_m64qu",
+      "gift_id": "churrasco",
+      "buyer_name": "Asac dcfd",
+      "buyer_message": null,
+      "amount_cents": 20000,
+      "payment_method": "stripe",
+      "status": "pending",
+      "mp_preference_id": null,
+      "stripe_session_id": "cs_live_a1VsWllyhwCTBmsKdAMtt0lQpcffNVINgFXCmgoQzvookXfI7IchJJCwhv",
+      "asaas_payment_id": null,
+      "created_at": "2026-09-01T22:19:56.030Z",
+      "updated_at": "2026-09-01T22:19:56.030Z"
+    },
+    {
+      "id": "order_1788306064926_zpfxx",
+      "gift_id": "airfryer",
+      "buyer_name": "Teste",
+      "buyer_message": null,
+      "amount_cents": 45000,
+      "payment_method": "stripe",
+      "status": "pending",
+      "mp_preference_id": null,
+      "stripe_session_id": "cs_live_a1pah8ksSOgZOlJ8RnOMwC5TV9aXaqdHoCLXqmQgpZE06zzcQ7KGjfkbWQ",
+      "asaas_payment_id": null,
+      "created_at": "2026-09-01T23:41:04.926Z",
+      "updated_at": "2026-09-01T23:41:04.926Z"
     }
   ],
   "rsvps": [

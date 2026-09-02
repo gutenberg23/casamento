@@ -1,6 +1,52 @@
 [build]
-  publish = "."
-  command = ""
+  publish = "dist"
+  functions = "netlify/functions"
+  command = "npm run build"
+
+[[redirects]]
+  from = "/api/create-payment"
+  to = "/.netlify/functions/create-payment"
+  status = 200
+
+[[redirects]]
+  from = "/api/stripe-status"
+  to = "/.netlify/functions/stripe-status"
+  status = 200
+
+[[redirects]]
+  from = "/api/admin-gifts"
+  to = "/.netlify/functions/admin-gifts"
+  status = 200
+
+[[redirects]]
+  from = "/api/gifts"
+  to = "/.netlify/functions/gifts"
+  status = 200
+
+[[redirects]]
+  from = "/api/rsvps"
+  to = "/.netlify/functions/rsvps"
+  status = 200
+
+[[redirects]]
+  from = "/api/orders"
+  to = "/.netlify/functions/orders"
+  status = 200
+
+[[redirects]]
+  from = "/api/confirm-pix-order"
+  to = "/.netlify/functions/confirm-pix-order"
+  status = 200
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
 
 [[headers]]
   for = "/*"

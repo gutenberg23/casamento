@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --cream: #F7F1E6;
+    --cream-deep: #EFE3D0;
+    --paper: #FCF9F3;
+    --terracotta: #C67C4E;
+    --terracotta-deep: #A25A32;
+    --terracotta-soft: rgba(198, 124, 78, 0.2);
+    --blush: #E7C0AC;
+    --sage: #7C8862;
+    --sage-deep: #5C6748;
+    --ink: #3A2E22;
+    --ink-soft: #7A6A57;
+    --line: rgba(58, 46, 34, 0.14);
+  }
+
+  body {
+    background-color: var(--cream);
+    color: var(--ink);
+    font-family: 'Karla', sans-serif;
+    line-height: 1.6;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4, .font-serif-display {
+    font-family: 'Fraunces', serif;
+    letter-spacing: -0.01em;
+  }
+}
+
+.petal-field {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle, var(--terracotta) 1.5px, transparent 1.6px),
+    radial-gradient(circle, var(--sage) 1.5px, transparent 1.6px);
+  background-size: 68px 68px, 96px 96px;
+  background-position: 0 0, 34px 48px;
+  opacity: 0.14;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes floatGentle {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-4px) rotate(1deg); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+.animate-float {
+  animation: floatGentle 4s ease-in-out infinite;
+}
+
+::selection {
+  background-color: var(--blush);
+  color: var(--ink);
+}
