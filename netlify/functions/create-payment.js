@@ -169,6 +169,7 @@ export async function handler(event, context) {
     // Cria sessão do Stripe via chamada HTTP direta (compatível nativamente com qualquer runtime sem dependências externas)
     const stripeParams = new URLSearchParams();
     stripeParams.append("payment_method_types[]", "card");
+    stripeParams.append("payment_method_options[card][installments][enabled]", "true");
     stripeParams.append("line_items[0][price_data][currency]", "brl");
     stripeParams.append("line_items[0][price_data][product_data][name]", `Presente: ${gift.name} — Casamento Iasmin & Gutenberg`);
     if (gift.description) {

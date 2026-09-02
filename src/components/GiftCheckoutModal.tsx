@@ -319,7 +319,7 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
               <div className="bg-[#EFE3D0]/60 border border-[#3A2E22]/10 rounded-md p-3.5 mb-6 text-xs text-[#7A6A57] flex items-start gap-2.5">
                 <ShieldCheck className="w-4 h-4 text-[#5C6748] shrink-0 mt-0.5" />
                 <span>
-                  Você será redirecionado para a página oficial do <strong>Stripe</strong> com criptografia de ponta a ponta para pagar no cartão de crédito.
+                  Você será redirecionado para o checkout oficial do <strong>Stripe</strong> com opção de <strong>parcelamento no cartão de crédito</strong> e segurança de ponta a ponta.
                 </span>
               </div>
             )}

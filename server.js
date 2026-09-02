@@ -481,6 +481,7 @@ app.post(["/api/create-payment", "/functions/v1/create-payment", "/.netlify/func
 
       const stripeParams = new URLSearchParams();
       stripeParams.append("payment_method_types[]", "card");
+      stripeParams.append("payment_method_options[card][installments][enabled]", "true");
       stripeParams.append("line_items[0][price_data][currency]", "brl");
       stripeParams.append("line_items[0][price_data][product_data][name]", `Presente: ${gift.name} — Casamento Iasmin & Gutenberg`);
       if (gift.description) {
