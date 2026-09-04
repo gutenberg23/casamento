@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 
@@ -188,7 +189,26 @@ async function syncFromSupabase() {
     if (Array.isArray(rRes) && rRes.length > 0) {
       const rMap = new Map();
       rsvps.forEach(r => rMap.set(r.id, r));
-      rRes.forEach(r => rMap.set(r.id, r));
+      rRes.forEach(r => {
+        let phone = r.phone || "";
+        let cleanMessage = r.message || null;
+        if (!phone && cleanMessage && cleanMessage.includes("[WhatsApp:")) {
+          const match = cleanMessage.match(/\[WhatsApp:\s*([^\]]+)\]/);
+          if (match) {
+            phone = match[1].trim();
+            cleanMessage = cleanMessage.replace(/\[WhatsApp:\s*[^\]]+\]\s*/, "").trim() || null;
+          }
+        }
+        rMap.set(r.id, {
+          id: String(r.id),
+          name: String(r.name || ""),
+          phone,
+          attending: Boolean(r.attending),
+          guests: Number(r.guests) || 1,
+          message: cleanMessage,
+          created_at: r.created_at || new Date().toISOString()
+        });
+      });
       rsvps = Array.from(rMap.values());
     }
 
@@ -259,20 +279,32 @@ async function pushRsvpToSupabase(rsvp) {
   const headers = getSupabaseHeaders();
   if (!headers || !SUPABASE_URL || !rsvp) return;
   try {
+    const cleanPhone = rsvp.phone ? String(rsvp.phone).trim() : "";
+    let combinedMessage = rsvp.message ? String(rsvp.message).trim() : "";
+    if (cleanPhone) {
+      combinedMessage = combinedMessage
+        ? `[WhatsApp: ${cleanPhone}] ${combinedMessage}`
+        : `[WhatsApp: ${cleanPhone}]`;
+    }
+
     const payload = {
       id: rsvp.id,
       name: rsvp.name,
-      phone: rsvp.phone || null,
       attending: rsvp.attending,
       guests: Number(rsvp.guests) || 1,
-      message: rsvp.message || null,
+      message: combinedMessage || null,
       created_at: rsvp.created_at || new Date().toISOString()
     };
-    await fetch(`${SUPABASE_URL}/rest/v1/rsvps?on_conflict=id`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rsvps`, {
       method: "POST",
       headers: { ...headers, Prefer: "resolution=merge-duplicates,return=representation" },
       body: JSON.stringify(payload)
     });
+    if (!res.ok) {
+      console.error("[Supabase Bridge] Erro ao sincronizar RSVP:", res.status, await res.text());
+    } else {
+      console.log("[Supabase Bridge] RSVP salvo com sucesso no Supabase:", rsvp.id);
+    }
   } catch (e) {
     console.error("[Supabase Bridge] Erro ao sincronizar RSVP:", e.message);
   }
@@ -441,13 +473,20 @@ app.post(["/api/rsvps", "/rest/v1/rsvps"], (req, res) => {
     return res.status(400).json({ error: "Nome é obrigatório." });
   }
 
+  const cleanPhone = phone ? String(phone).trim() : "";
+  const userMsg = message ? String(message).trim() : null;
+
+  const id = (typeof crypto !== "undefined" && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : "a" + Math.random().toString(36).substring(2, 10) + "-0000-4000-a000-" + Math.random().toString(36).substring(2, 14);
+
   const newRsvp = {
-    id: `rsvp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    id,
     name: name.trim(),
-    phone: phone ? String(phone).trim() : "",
+    phone: cleanPhone,
     attending: attending === true || attending === "true" || attending === "sim",
     guests: 1,
-    message: message ? String(message).trim() : null,
+    message: userMsg,
     created_at: new Date().toISOString(),
   };
 
@@ -455,6 +494,30 @@ app.post(["/api/rsvps", "/rest/v1/rsvps"], (req, res) => {
   saveStore();
   pushRsvpToSupabase(newRsvp);
   res.status(201).json(newRsvp);
+});
+
+app.delete(["/api/rsvps/:id", "/api/rsvps"], async (req, res) => {
+  const id = req.params.id || req.body?.id || req.query?.id;
+  if (!id) {
+    return res.status(400).json({ error: "ID obrigatório." });
+  }
+
+  rsvps = rsvps.filter(r => String(r.id) !== String(id));
+  saveStore();
+
+  const headers = getSupabaseHeaders();
+  if (headers && SUPABASE_URL) {
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/rsvps?id=eq.${id}`, {
+        method: "DELETE",
+        headers
+      });
+    } catch (e) {
+      console.warn("[Supabase Bridge] Erro ao deletar RSVP:", e.message);
+    }
+  }
+
+  res.json({ ok: true, id });
 });
 
 // Gift Orders

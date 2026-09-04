@@ -8,7 +8,7 @@ import { Users, CheckCircle2, Loader2, Send, Phone, User, Check, X, ShieldAlert 
 
 interface RsvpSectionProps {
   rsvps: Rsvp[];
-  onRsvpSuccess: () => void;
+  onRsvpSuccess: (newRsvp?: Rsvp) => void;
 }
 
 export const RsvpSection: React.FC<RsvpSectionProps> = ({ rsvps, onRsvpSuccess }) => {
@@ -44,7 +44,7 @@ export const RsvpSection: React.FC<RsvpSectionProps> = ({ rsvps, onRsvpSuccess }
 
     setLoading(true);
     try {
-      await submitRsvp({
+      const saved = await submitRsvp({
         name: name.trim(),
         phone: phone.trim(),
         attending: attending === 'sim',
@@ -70,7 +70,7 @@ export const RsvpSection: React.FC<RsvpSectionProps> = ({ rsvps, onRsvpSuccess }
       setName('');
       setPhone('');
       setMessage('');
-      onRsvpSuccess();
+      onRsvpSuccess(saved);
     } catch (err: any) {
       setStatusMessage({
         type: 'err',

@@ -38,9 +38,7 @@ export function getLocalRsvps(): Rsvp[] {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY_RSVPS);
     if (raw) return JSON.parse(raw);
   } catch {}
-  return [
-    { id: 'sample-1', name: 'Mariana Silva', phone: '(21) 98888-7777', attending: true, guests: 1, message: 'Parabéns ao casal lindo! Estarei lá com certeza!', created_at: new Date(Date.now() - 86400000).toISOString() }
-  ];
+  return [];
 }
 
 export function saveLocalRsvps(rsvps: Rsvp[]): void {
@@ -87,57 +85,157 @@ export async function fetchGifts(): Promise<Gift[]> {
 }
 
 export async function fetchRsvps(): Promise<Rsvp[]> {
-  try {
-    const res = await fetch('/api/rsvps', { cache: 'no-store' });
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        console.log(`[API] fetchRsvps retornou ${data.length} confirmações.`);
-        saveLocalRsvps(data);
-        return data;
+  const routes = ['/api/rsvps', '/.netlify/functions/rsvps'];
+  let serverRsvps: Rsvp[] | null = null;
+
+  for (const route of routes) {
+    try {
+      const res = await fetch(route, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          console.log(`[API] fetchRsvps retornou ${data.length} confirmações de ${route}.`);
+          serverRsvps = data.map((r: any) => {
+            let phone = r.phone || '';
+            let msg = r.message || null;
+            if (!phone && msg && msg.includes('[WhatsApp:')) {
+              const m = msg.match(/\[WhatsApp:\s*([^\]]+)\]/);
+              if (m) {
+                phone = m[1].trim();
+                msg = msg.replace(/\[WhatsApp:\s*[^\]]+\]\s*/, '').trim() || null;
+              }
+            }
+            return {
+              id: String(r.id),
+              name: String(r.name || ''),
+              phone,
+              attending: Boolean(r.attending),
+              guests: Number(r.guests) || 1,
+              message: msg,
+              created_at: r.created_at || new Date().toISOString()
+            };
+          });
+          break;
+        }
       }
+    } catch (e) {
+      console.warn(`[API] ${route} indisponível para RSVPs:`, e);
     }
-  } catch (e) {
-    console.warn('[API] /api/rsvps indisponível, usando cache local:', e);
   }
-  return getLocalRsvps();
+
+  const local = getLocalRsvps();
+  if (serverRsvps) {
+    // Mescla local e servidor para garantir que confirmações offline ou em trânsito não se percam
+    const map = new Map<string, Rsvp>();
+    local.forEach(r => map.set(r.id, r));
+    serverRsvps.forEach(r => map.set(r.id, r));
+    const merged = Array.from(map.values()).sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    saveLocalRsvps(merged);
+    return merged;
+  }
+
+  return local;
 }
 
 export async function submitRsvp(payload: { name: string; phone: string; attending: boolean; message?: string }): Promise<Rsvp> {
+  const cleanPhone = payload.phone ? payload.phone.trim() : '';
+  const cleanMsg = payload.message ? payload.message.trim() : null;
+
+  const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : 'rsvp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+
   const newRsvp: Rsvp = {
-    id: `rsvp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    id,
     name: payload.name.trim(),
-    phone: payload.phone.trim(),
+    phone: cleanPhone,
     attending: payload.attending,
     guests: 1,
-    message: payload.message?.trim() || null,
+    message: cleanMsg,
     created_at: new Date().toISOString()
   };
 
   console.log('[API] Enviando confirmação RSVP:', newRsvp);
 
-  try {
-    const res = await fetch('/api/rsvps', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newRsvp)
-    });
-    if (res.ok) {
-      const data = await res.json();
-      console.log('[API] RSVP salvo com sucesso no servidor:', data);
-      const list = getLocalRsvps();
-      list.unshift(data || newRsvp);
-      saveLocalRsvps(list);
-      return data || newRsvp;
+  // Salva imediatamente no cache local para atualização instantânea (0ms)
+  const currentList = getLocalRsvps().filter(r => r.id !== id);
+  currentList.unshift(newRsvp);
+  saveLocalRsvps(currentList);
+
+  const routes = ['/api/rsvps', '/.netlify/functions/rsvps'];
+  for (const route of routes) {
+    try {
+      const res = await fetch(route, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id,
+          name: newRsvp.name,
+          phone: cleanPhone,
+          attending: newRsvp.attending,
+          message: cleanMsg,
+          created_at: newRsvp.created_at
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        console.log(`[API] RSVP salvo com sucesso em ${route}:`, data);
+        let phone = cleanPhone;
+        let msg = data.message || cleanMsg;
+        if (msg && msg.includes('[WhatsApp:')) {
+          const m = msg.match(/\[WhatsApp:\s*([^\]]+)\]/);
+          if (m) {
+            phone = m[1].trim();
+            msg = msg.replace(/\[WhatsApp:\s*[^\]]+\]\s*/, '').trim() || null;
+          }
+        }
+        const savedItem: Rsvp = {
+          id: String(data.id || id),
+          name: data.name || newRsvp.name,
+          phone,
+          attending: data.attending !== undefined ? Boolean(data.attending) : newRsvp.attending,
+          guests: Number(data.guests) || 1,
+          message: msg,
+          created_at: data.created_at || newRsvp.created_at
+        };
+
+        const updatedList = getLocalRsvps().filter(r => r.id !== id && r.id !== savedItem.id);
+        updatedList.unshift(savedItem);
+        saveLocalRsvps(updatedList);
+        return savedItem;
+      }
+    } catch (e) {
+      console.warn(`[API] Erro ao enviar RSVP para ${route}:`, e);
     }
-  } catch (e) {
-    console.warn('[API] Fallback salvando RSVP localmente:', e);
   }
 
-  const list = getLocalRsvps();
-  list.unshift(newRsvp);
-  saveLocalRsvps(list);
   return newRsvp;
+}
+
+export async function adminDeleteRsvp(id: string): Promise<boolean> {
+  // Remove do local storage
+  const current = getLocalRsvps().filter(r => String(r.id) !== String(id));
+  saveLocalRsvps(current);
+
+  const routes = [`/api/rsvps?id=${encodeURIComponent(id)}`, `/.netlify/functions/rsvps?id=${encodeURIComponent(id)}`];
+  for (const route of routes) {
+    try {
+      const res = await fetch(route, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      if (res.ok) {
+        console.log(`[API] RSVP deletado com sucesso em ${route}`);
+        return true;
+      }
+    } catch (e) {
+      console.warn(`[API] Erro ao deletar RSVP em ${route}:`, e);
+    }
+  }
+  return true;
 }
 
 export async function fetchOrders(): Promise<GiftOrder[]> {

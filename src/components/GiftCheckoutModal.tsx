@@ -13,16 +13,14 @@ interface GiftCheckoutModalProps {
 }
 
 export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onClose, onSuccess }) => {
-  if (!gift) return null;
-
   const [step, setStep] = useState<'form' | 'pix' | 'success'>('form');
   const [buyerName, setBuyerName] = useState('');
   const [buyerMessage, setBuyerMessage] = useState('');
 
   // Garante que o valor inicial reflita exatamente o preço do item (ex: R$ 10,00 -> 10, e não 100)
-  const initialCustomAmount = gift.unique_item
-    ? Math.max(1, Math.round((gift.price_cents || 1000) / 100))
-    : Math.max(10, Math.round((gift.price_cents || 1000) / 100));
+  const initialCustomAmount = gift?.unique_item
+    ? Math.max(1, Math.round((gift?.price_cents || 1000) / 100))
+    : Math.max(10, Math.round((gift?.price_cents || 1000) / 100));
 
   const [customAmount, setCustomAmount] = useState<number>(initialCustomAmount);
   const [paymentMethod, setPaymentMethod] = useState<'pix_direct' | 'card'>('pix_direct');
@@ -36,13 +34,13 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
   const [copiedPix, setCopiedPix] = useState(false);
 
   // Valores pré-definidos incluindo opções a partir de R$ 10
-  const suggestedGiftVal = Math.round((gift.price_cents || 1000) / 100);
+  const suggestedGiftVal = Math.round((gift?.price_cents || 1000) / 100);
   const presetAmounts = Array.from(
     new Set([10, 25, 50, 100, 200, suggestedGiftVal].filter(v => v >= 10))
   ).sort((a, b) => a - b);
 
-  const finalAmountCents = gift.unique_item
-    ? gift.price_cents
+  const finalAmountCents = gift?.unique_item
+    ? (gift?.price_cents || 0)
     : Math.round(Number(customAmount) * 100);
 
   const isNameFilled = Boolean(buyerName && buyerName.trim().length >= 2);
@@ -192,6 +190,8 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
       setLoading(false);
     }
   };
+
+  if (!gift) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#3A2E22]/50 backdrop-blur-xs animate-fade-in">

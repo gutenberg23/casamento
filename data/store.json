@@ -121,24 +121,24 @@
       "created_at": "2026-09-04T00:23:37.600027+00:00"
     },
     {
-      "id": "tapete-sala",
-      "name": "Tapete Sala",
-      "description": "Bolo Rústico",
-      "price_cents": 47000,
-      "unique_item": true,
-      "active": true,
-      "sort_order": 1,
-      "created_at": "2026-09-03T23:57:42.087305+00:00"
-    },
-    {
       "id": "cotas-lua-de-mel",
       "name": "Cotas LUA DE MEL",
       "description": "Nos ajude a aproveitar um pouco?",
       "price_cents": 50000,
       "unique_item": false,
       "active": true,
-      "sort_order": 1,
+      "sort_order": 0,
       "created_at": "2026-09-04T00:03:48.631505+00:00"
+    },
+    {
+      "id": "tapete-sala",
+      "name": "Tapete Sala",
+      "description": "Boho Rústico",
+      "price_cents": 47000,
+      "unique_item": true,
+      "active": true,
+      "sort_order": 1,
+      "created_at": "2026-09-03T23:57:42.087305+00:00"
     },
     {
       "id": "panelas",
@@ -249,6 +249,16 @@
       "active": true,
       "sort_order": 15,
       "created_at": "2026-09-04T00:33:39.190218+00:00"
+    },
+    {
+      "id": "estante-multiuso",
+      "name": "Estante Multiuso",
+      "description": "Em madeira",
+      "price_cents": 7600,
+      "unique_item": true,
+      "active": true,
+      "sort_order": 16,
+      "created_at": "2026-09-04T01:02:32.855861+00:00"
     }
   ],
   "giftOrders": [

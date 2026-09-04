@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Gift, GiftOrder, Rsvp } from '../types';
 import { formatBRL, formatDateBR, exportToCSV, cleanPhoneBR } from '../utils/formatters';
-import { adminGiftsAction, checkStripeStatus, adminUpdateOrderStatus, adminUpdateOrder, fetchOrders, PaymentGatewayStatus } from '../services/api';
+import { adminGiftsAction, checkStripeStatus, adminUpdateOrderStatus, adminUpdateOrder, fetchOrders, fetchRsvps, adminDeleteRsvp, PaymentGatewayStatus } from '../services/api';
 import { X, Lock, Gift as GiftIcon, Users, ShoppingBag, Settings, Plus, Edit2, Trash2, Download, Check, AlertCircle, Phone, MessageSquare, ExternalLink, Clock, EyeOff, RefreshCw, Edit3 } from 'lucide-react';
 
 interface AdminModalProps {
@@ -21,54 +21,15 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   orders,
   onRefreshData,
 }) => {
-  if (!isOpen) return null;
-
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [adminCodeInput, setAdminCodeInput] = useState('');
   const [authError, setAuthError] = useState('');
   const [activeTab, setActiveTab] = useState<'gifts' | 'rsvps' | 'orders' | 'settings'>('gifts');
   const [adminGifts, setAdminGifts] = useState<Gift[]>(gifts || []);
   const [adminOrders, setAdminOrders] = useState<GiftOrder[]>(orders || []);
+  const [adminRsvps, setAdminRsvps] = useState<Rsvp[]>(rsvps || []);
   const [loadingOrders, setLoadingOrders] = useState(false);
-
-  // Sync gifts when prop changes or on open
-  useEffect(() => {
-    if (gifts && gifts.length > 0) {
-      setAdminGifts(prev => {
-        const activeIds = new Set(gifts.map(g => g.id));
-        const keptInactives = prev.filter(p => p.active === false && !activeIds.has(p.id));
-        const merged = [...gifts, ...keptInactives];
-        return merged.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-      });
-    }
-  }, [gifts]);
-
-  // Sync orders when prop changes
-  useEffect(() => {
-    if (orders && orders.length > 0) {
-      setAdminOrders(orders);
-    }
-  }, [orders]);
-
-  const refreshOrdersList = async () => {
-    setLoadingOrders(true);
-    try {
-      const latest = await fetchOrders();
-      if (Array.isArray(latest)) {
-        setAdminOrders(latest);
-      }
-    } catch (e) {
-      console.warn('[AdminModal] Erro ao recarregar pedidos:', e);
-    } finally {
-      setLoadingOrders(false);
-    }
-  };
-
-  useEffect(() => {
-    if (isAuthenticated && activeTab === 'orders') {
-      refreshOrdersList();
-    }
-  }, [isAuthenticated, activeTab]);
+  const [loadingRsvps, setLoadingRsvps] = useState(false);
 
   // Gift Form state
   const [editingGift, setEditingGift] = useState<Partial<Gift> | null>(null);
@@ -89,6 +50,82 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
   // Diagnostic state
   const [stripeDiagnostic, setStripeDiagnostic] = useState<PaymentGatewayStatus | null>(null);
+
+  // Sync gifts when prop changes or on open
+  useEffect(() => {
+    if (gifts && gifts.length > 0) {
+      setAdminGifts(prev => {
+        const activeIds = new Set(gifts.map(g => g.id));
+        const keptInactives = prev.filter(p => p.active === false && !activeIds.has(p.id));
+        const merged = [...gifts, ...keptInactives];
+        return merged.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      });
+    }
+  }, [gifts]);
+
+  // Sync orders when prop changes
+  useEffect(() => {
+    if (orders && orders.length > 0) {
+      setAdminOrders(orders);
+    }
+  }, [orders]);
+
+  // Sync rsvps when prop changes
+  useEffect(() => {
+    if (rsvps) {
+      setAdminRsvps(rsvps);
+    }
+  }, [rsvps]);
+
+  const refreshOrdersList = async () => {
+    setLoadingOrders(true);
+    try {
+      const latest = await fetchOrders();
+      if (Array.isArray(latest)) {
+        setAdminOrders(latest);
+      }
+    } catch (e) {
+      console.warn('[AdminModal] Erro ao recarregar pedidos:', e);
+    } finally {
+      setLoadingOrders(false);
+    }
+  };
+
+  const refreshRsvpsList = async () => {
+    setLoadingRsvps(true);
+    try {
+      const latest = await fetchRsvps();
+      if (Array.isArray(latest)) {
+        setAdminRsvps(latest);
+        onRefreshData();
+      }
+    } catch (e) {
+      console.warn('[AdminModal] Erro ao recarregar confirmações:', e);
+    } finally {
+      setLoadingRsvps(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      if (activeTab === 'orders') {
+        refreshOrdersList();
+      } else if (activeTab === 'rsvps') {
+        refreshRsvpsList();
+      }
+    }
+  }, [isAuthenticated, activeTab]);
+
+  const handleDeleteRsvp = async (id: string, name: string) => {
+    if (!window.confirm(`Tem certeza que deseja remover a confirmação de "${name}"?`)) return;
+    try {
+      await adminDeleteRsvp(id);
+      setAdminRsvps(prev => prev.filter(r => r.id !== id));
+      onRefreshData();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao remover confirmação.');
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -269,7 +306,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
   // CSV Exports
   const handleExportRsvps = () => {
-    const data = rsvps.map(r => ({
+    const data = adminRsvps.map(r => ({
       Nome: r.name,
       WhatsApp: r.phone || '',
       Presença: r.attending ? 'Confirmado (SIM)' : 'Não comparecerá',
@@ -293,13 +330,13 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     exportToCSV('pedidos-presentes-casamento.csv', data);
   };
 
-  const filteredRsvps = rsvps.filter(r => {
+  const filteredRsvps = adminRsvps.filter(r => {
     if (rsvpFilter === 'attending') return r.attending;
     if (rsvpFilter === 'not_attending') return !r.attending;
     return true;
   });
 
-  const totalConfirmedPeople = rsvps.filter(r => r.attending).length;
+  const totalConfirmedPeople = adminRsvps.filter(r => r.attending).length;
 
   const countAwaiting = adminOrders.filter(o => o.status === 'awaiting_confirmation' || o.status === 'pending').length;
   const countApproved = adminOrders.filter(o => o.status === 'approved').length;
@@ -319,6 +356,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const totalAwaitingCents = adminOrders
     .filter(o => o.status === 'awaiting_confirmation' || o.status === 'pending')
     .reduce((sum, o) => sum + (o.amount_cents || 0), 0);
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#3A2E22]/50 backdrop-blur-xs animate-fade-in">
@@ -659,7 +698,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                             : 'bg-white text-[#7A6A57] border-[#3A2E22]/15'
                         }`}
                       >
-                        Todos ({rsvps.length})
+                        Todos ({adminRsvps.length})
                       </button>
                       <button
                         onClick={() => setRsvpFilter('attending')}
@@ -679,17 +718,30 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                             : 'bg-white text-[#7A6A57] border-[#3A2E22]/15'
                         }`}
                       >
-                        Não vão ({rsvps.filter(r => !r.attending).length})
+                        Não vão ({adminRsvps.filter(r => !r.attending).length})
                       </button>
                     </div>
 
-                    <button
-                      onClick={handleExportRsvps}
-                      className="py-1.5 px-3 rounded border border-[#3A2E22]/15 bg-white text-xs font-semibold text-[#3A2E22] hover:border-[#C67C4E] flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Exportar CSV</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={refreshRsvpsList}
+                        disabled={loadingRsvps}
+                        className="py-1.5 px-3 rounded border border-[#3A2E22]/15 bg-white text-xs font-semibold text-[#3A2E22] hover:border-[#C67C4E] flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        title="Atualizar lista de confirmações"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 text-[#C67C4E] ${loadingRsvps ? 'animate-spin' : ''}`} />
+                        <span>{loadingRsvps ? 'Atualizando...' : 'Atualizar'}</span>
+                      </button>
+
+                      <button
+                        onClick={handleExportRsvps}
+                        className="py-1.5 px-3 rounded border border-[#3A2E22]/15 bg-white text-xs font-semibold text-[#3A2E22] hover:border-[#C67C4E] flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Exportar CSV</span>
+                      </button>
+                    </div>
                   </div>
 
                   {filteredRsvps.length === 0 ? (
@@ -743,9 +795,18 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                               </p>
                             )}
 
-                            <span className="text-[10px] text-[#7A6A57]/70 mt-0.5">
-                              {formatDateBR(r.created_at)}
-                            </span>
+                            <div className="flex justify-between items-center text-[10px] text-[#7A6A57]/70 mt-1 pt-1 border-t border-[#3A2E22]/5">
+                              <span>{formatDateBR(r.created_at)}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteRsvp(r.id, r.name)}
+                                className="inline-flex items-center gap-1 text-red-600/80 hover:text-red-700 hover:underline cursor-pointer p-0.5"
+                                title="Excluir confirmação"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                <span>Remover</span>
+                              </button>
+                            </div>
                           </div>
                         );
                       })}

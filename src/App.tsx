@@ -42,6 +42,16 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleRsvpSuccess = async (newRsvp?: Rsvp) => {
+    if (newRsvp) {
+      setRsvps(prev => {
+        const filtered = prev.filter(r => r.id !== newRsvp.id);
+        return [newRsvp, ...filtered];
+      });
+    }
+    await loadAllData();
+  };
+
   useEffect(() => {
     loadAllData();
   }, []);
@@ -92,7 +102,7 @@ export const App: React.FC = () => {
         {/* 5. RSVP Confirmation (Live attendee counter, guest count selector, message) */}
         <RsvpSection
           rsvps={rsvps}
-          onRsvpSuccess={loadAllData}
+          onRsvpSuccess={handleRsvpSuccess}
         />
       </main>
 
@@ -112,23 +122,27 @@ export const App: React.FC = () => {
       )}
 
       {/* Admin Portal Modal */}
-      <AdminModal
-        isOpen={adminOpen}
-        onClose={() => setAdminOpen(false)}
-        gifts={gifts}
-        rsvps={rsvps}
-        orders={orders}
-        onRefreshData={loadAllData}
-      />
+      {adminOpen && (
+        <AdminModal
+          isOpen={adminOpen}
+          onClose={() => setAdminOpen(false)}
+          gifts={gifts}
+          rsvps={rsvps}
+          orders={orders}
+          onRefreshData={loadAllData}
+        />
+      )}
 
       {/* System Checkup Modal */}
-      <CheckupModal
-        isOpen={checkupOpen}
-        onClose={() => setCheckupOpen(false)}
-        giftsCount={gifts.length}
-        rsvpsCount={rsvps.length}
-        ordersCount={orders.length}
-      />
+      {checkupOpen && (
+        <CheckupModal
+          isOpen={checkupOpen}
+          onClose={() => setCheckupOpen(false)}
+          giftsCount={gifts.length}
+          rsvpsCount={rsvps.length}
+          ordersCount={orders.length}
+        />
+      )}
     </div>
   );
 };
