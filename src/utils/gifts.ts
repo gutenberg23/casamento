@@ -22,6 +22,26 @@ export function doesOrderMatchGift(
       return true;
     }
   }
+
+  // Comparações com remoção de acentos e pontuação (ex.: 'ventilador-torre-arno' vs 'Ventilador Torre Arno')
+  const normalizeStr = (s: string) =>
+    s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+
+  const normOrderGiftId = normalizeStr(orderGiftId);
+  const normGiftId = normalizeStr(giftId);
+  const normGiftName = normalizeStr(giftName);
+
+  if (normOrderGiftId && (normOrderGiftId === normGiftId || normOrderGiftId === normGiftName)) {
+    return true;
+  }
+
+  if ('gift_name' in order && order.gift_name) {
+    const normOName = normalizeStr(String(order.gift_name));
+    if (normOName && (normOName === normGiftName || normOName === normGiftId)) {
+      return true;
+    }
+  }
+
   return false;
 }
 

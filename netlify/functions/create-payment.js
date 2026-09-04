@@ -1,3 +1,12 @@
+import crypto from "crypto";
+
+function ensureUUID(id) {
+  if (id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id).trim())) {
+    return String(id).trim();
+  }
+  return crypto.randomUUID();
+}
+
 function getStripeSecretKey() {
   const envKeys = [
     "STRIPE_SECRET_KEY",
@@ -73,17 +82,7 @@ function getMercadoPagoAccessToken() {
   return null;
 }
 
-const defaultGifts = [
-  { id: "panelas", name: "Jogo de panelas", description: "Um conjunto bom, dos que duram anos.", price_cents: 35000, unique_item: true },
-  { id: "airfryer", name: "Air fryer", description: "Pra facilitar o dia a dia na cozinha nova.", price_cents: 45000, unique_item: true },
-  { id: "liquidificador", name: "Liquidificador", description: "Vitamina de manhã não pode faltar.", price_cents: 22000, unique_item: true },
-  { id: "cafeteira", name: "Cafeteira", description: "Café fresquinho todo santo dia.", price_cents: 28000, unique_item: true },
-  { id: "jogocama", name: "Jogo de cama casal", description: "Lençol bom pra dormir bem.", price_cents: 25000, unique_item: true },
-  { id: "toalhas", name: "Jogo de toalhas", description: "Pro banheiro novo ficar completo.", price_cents: 18000, unique_item: true },
-  { id: "aspirador", name: "Robô aspirador", description: "Aquele mimo que ninguém se arrepende de dar.", price_cents: 90000, unique_item: true },
-  { id: "churrasco", name: "Kit churrasco", description: "Pra receber a família no fim de semana.", price_cents: 20000, unique_item: true },
-  { id: "luademel", name: "Cota lua de mel", description: "Contribua com o valor que quiser pra nossa viagem.", price_cents: 10000, unique_item: false }
-];
+const defaultGifts = [];
 
 const headers = {
   "Access-Control-Allow-Origin": "*",
@@ -204,7 +203,7 @@ export async function handler(event, context) {
       ? Number(gift.price_cents)
       : (amount_cents && Number(amount_cents) > 0 ? Number(amount_cents) : Number(gift.price_cents));
 
-    const orderId = `order_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const orderId = ensureUUID(body.order_id);
     const origin = event.headers.origin || event.headers.referer || "https://iasminegutenberg.com.br";
     const cleanOrigin = origin.split("?")[0].replace(/\/$/, "");
 
@@ -222,7 +221,7 @@ export async function handler(event, context) {
       // Registra pedido prévio no Supabase
       if (SUPABASE_URL && SUPABASE_KEY) {
         try {
-          await fetch(`${SUPABASE_URL}/rest/v1/gift_orders`, {
+          await fetch(`${SUPABASE_URL}/rest/v1/gift_orders?on_conflict=id`, {
             method: "POST",
             headers: {
               apikey: SUPABASE_KEY,
@@ -232,13 +231,12 @@ export async function handler(event, context) {
             },
             body: JSON.stringify({
               id: orderId,
-              gift_id,
+              gift_id: gift.id,
               buyer_name: buyer_name.trim(),
-              buyer_message: buyer_message ? String(buyer_message).trim() : null,
               amount_cents: finalAmount,
-              payment_method: "pix_direct",
               status: "pending",
-              created_at: new Date().toISOString()
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
             })
           });
         } catch (e) {}
@@ -277,22 +275,22 @@ export async function handler(event, context) {
       // Registra pedido prévio no Supabase
       if (SUPABASE_URL && SUPABASE_KEY) {
         try {
-          await fetch(`${SUPABASE_URL}/rest/v1/gift_orders`, {
+          await fetch(`${SUPABASE_URL}/rest/v1/gift_orders?on_conflict=id`, {
             method: "POST",
             headers: {
               apikey: SUPABASE_KEY,
               Authorization: `Bearer ${SUPABASE_KEY}`,
-              "Content-Type": "application/json"
+              "Content-Type": "application/json",
+              Prefer: "resolution=merge-duplicates"
             },
             body: JSON.stringify({
               id: orderId,
-              gift_id,
+              gift_id: gift.id,
               buyer_name: buyer_name.trim(),
-              buyer_message: buyer_message ? String(buyer_message).trim() : null,
               amount_cents: finalAmount,
-              payment_method: "mercadopago",
               status: "pending",
-              created_at: new Date().toISOString()
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
             })
           });
         } catch (e) {}
@@ -367,22 +365,22 @@ export async function handler(event, context) {
       // Registra pedido prévio no Supabase
       if (SUPABASE_URL && SUPABASE_KEY) {
         try {
-          await fetch(`${SUPABASE_URL}/rest/v1/gift_orders`, {
+          await fetch(`${SUPABASE_URL}/rest/v1/gift_orders?on_conflict=id`, {
             method: "POST",
             headers: {
               apikey: SUPABASE_KEY,
               Authorization: `Bearer ${SUPABASE_KEY}`,
-              "Content-Type": "application/json"
+              "Content-Type": "application/json",
+              Prefer: "resolution=merge-duplicates"
             },
             body: JSON.stringify({
               id: orderId,
-              gift_id,
+              gift_id: gift.id,
               buyer_name: buyer_name.trim(),
-              buyer_message: buyer_message ? String(buyer_message).trim() : null,
               amount_cents: finalAmount,
-              payment_method: "stripe",
               status: "pending",
-              created_at: new Date().toISOString()
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
             })
           });
         } catch (e) {}

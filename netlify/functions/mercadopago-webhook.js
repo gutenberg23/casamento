@@ -73,7 +73,7 @@ export async function handler(event) {
 
         if (externalRef && SUPABASE_URL && SUPABASE_KEY) {
           const newStatus = status === "approved" ? "approved" : (status === "rejected" || status === "cancelled" ? "rejected" : "pending");
-          await fetch(`${SUPABASE_URL}/rest/v1/gift_orders?id=eq.${encodeURIComponent(externalRef)}`, {
+          const patchRes = await fetch(`${SUPABASE_URL}/rest/v1/gift_orders?id=eq.${encodeURIComponent(externalRef)}`, {
             method: "PATCH",
             headers: {
               apikey: SUPABASE_KEY,
@@ -86,6 +86,33 @@ export async function handler(event) {
               updated_at: new Date().toISOString()
             })
           });
+
+          const patchedData = patchRes && patchRes.ok ? await patchRes.json().catch(() => []) : [];
+          if ((!Array.isArray(patchedData) || patchedData.length === 0) && newStatus === "approved") {
+            const metaGift = paymentData.metadata?.gift_id || paymentData.additional_info?.items?.[0]?.id;
+            const buyerName = paymentData.metadata?.buyer_name || paymentData.payer?.first_name || "Convidado";
+            const amountCents = Math.round((paymentData.transaction_amount || 0) * 100);
+            if (metaGift) {
+              await fetch(`${SUPABASE_URL}/rest/v1/gift_orders?on_conflict=id`, {
+                method: "POST",
+                headers: {
+                  apikey: SUPABASE_KEY,
+                  Authorization: `Bearer ${SUPABASE_KEY}`,
+                  "Content-Type": "application/json",
+                  Prefer: "resolution=merge-duplicates"
+                },
+                body: JSON.stringify({
+                  id: externalRef,
+                  gift_id: metaGift,
+                  buyer_name: buyerName,
+                  amount_cents: amountCents > 0 ? amountCents : 10000,
+                  status: "approved",
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                })
+              }).catch(() => null);
+            }
+          }
         }
       }
     }

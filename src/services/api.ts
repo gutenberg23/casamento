@@ -1,30 +1,36 @@
 import { Gift, GiftOrder, Rsvp } from '../types';
 
-const LOCAL_STORAGE_KEY_GIFTS = 'iasmin_gutenberg_gifts_v4';
-const LOCAL_STORAGE_KEY_RSVPS = 'iasmin_gutenberg_rsvps_v4';
-const LOCAL_STORAGE_KEY_ORDERS = 'iasmin_gutenberg_orders_v4';
+const LOCAL_STORAGE_KEY_GIFTS = 'iasmin_gutenberg_gifts_v5';
+const LOCAL_STORAGE_KEY_RSVPS = 'iasmin_gutenberg_rsvps_v5';
+const LOCAL_STORAGE_KEY_ORDERS = 'iasmin_gutenberg_orders_v5';
 
-export const defaultCatalog: Gift[] = [
-  { id: 'panelas', name: 'Jogo de panelas', description: 'Um conjunto bom, dos que duram anos.', price_cents: 35000, unique_item: true, active: true, sort_order: 1, category: 'Cozinha' },
-  { id: 'airfryer', name: 'Air fryer', description: 'Pra facilitar o dia a dia na cozinha nova.', price_cents: 45000, unique_item: true, active: true, sort_order: 2, category: 'Eletros' },
-  { id: 'liquidificador', name: 'Liquidificador', description: 'Vitamina de manhã não pode faltar.', price_cents: 22000, unique_item: true, active: true, sort_order: 3, category: 'Eletros' },
-  { id: 'cafeteira', name: 'Cafeteira', description: 'Café fresquinho todo santo dia.', price_cents: 28000, unique_item: true, active: true, sort_order: 4, category: 'Cozinha' },
-  { id: 'jogocama', name: 'Jogo de cama casal', description: 'Lençol bom pra dormir bem.', price_cents: 25000, unique_item: true, active: true, sort_order: 5, category: 'Quarto' },
-  { id: 'toalhas', name: 'Jogo de toalhas', description: 'Pro banheiro novo ficar completo.', price_cents: 18000, unique_item: true, active: true, sort_order: 6, category: 'Banho' },
-  { id: 'aspirador', name: 'Robô aspirador', description: 'Aquele mimo que ninguém se arrepende de dar.', price_cents: 90000, unique_item: true, active: true, sort_order: 7, category: 'Casa' },
-  { id: 'churrasco', name: 'Kit churrasco', description: 'Pra receber a família no fim de semana.', price_cents: 20000, unique_item: true, active: true, sort_order: 8, category: 'Lazer' },
-  { id: 'luademel', name: 'Cota lua de mel', description: 'Contribua com o valor que quiser pra nossa viagem.', price_cents: 10000, unique_item: false, active: true, sort_order: 9, category: 'Lua de Mel' }
-];
+// Purge legacy caches containing obsolete mock items
+try {
+  ['v1', 'v2', 'v3', 'v4'].forEach(v => {
+    localStorage.removeItem(`iasmin_gutenberg_gifts_${v}`);
+    localStorage.removeItem(`iasmin_gutenberg_rsvps_${v}`);
+    localStorage.removeItem(`iasmin_gutenberg_orders_${v}`);
+  });
+} catch {}
+
+export const defaultCatalog: Gift[] = [];
 
 export function getLocalGifts(): Gift[] {
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY_GIFTS);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const legacyPlaceholderIds = new Set([
+          'panelas', 'airfryer', 'liquidificador', 'cafeteira', 'jogocama',
+          'toalhas', 'aspirador', 'churrasco', 'luademel'
+        ]);
+        const cleaned = parsed.filter(g => !legacyPlaceholderIds.has(String(g.id).toLowerCase()));
+        if (cleaned.length > 0) return cleaned;
+      }
     }
   } catch {}
-  return defaultCatalog;
+  return [];
 }
 
 export function saveLocalGifts(gifts: Gift[]): void {
@@ -36,7 +42,12 @@ export function saveLocalGifts(gifts: Gift[]): void {
 export function getLocalRsvps(): Rsvp[] {
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY_RSVPS);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(r => r && r.id !== 'sample-1' && r.name !== 'Família Silva');
+      }
+    }
   } catch {}
   return [];
 }
@@ -69,7 +80,7 @@ export async function fetchGifts(): Promise<Gift[]> {
       const res = await fetch(route, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data) && data.length > 0) {
+        if (Array.isArray(data)) {
           console.log(`[API] fetchGifts retornou ${data.length} presentes de ${route}.`);
           saveLocalGifts(data);
           return data;
@@ -80,7 +91,6 @@ export async function fetchGifts(): Promise<Gift[]> {
     }
   }
   const local = getLocalGifts();
-  console.log(`[API] Utilizando presentes do cache local: ${local.length} itens.`);
   return local;
 }
 
@@ -95,7 +105,9 @@ export async function fetchRsvps(): Promise<Rsvp[]> {
         const data = await res.json();
         if (Array.isArray(data)) {
           console.log(`[API] fetchRsvps retornou ${data.length} confirmações de ${route}.`);
-          serverRsvps = data.map((r: any) => {
+          serverRsvps = data
+            .filter((r: any) => r && r.id !== 'sample-1' && r.name !== 'Família Silva')
+            .map((r: any) => {
             let phone = r.phone || '';
             let msg = r.message || null;
             if (!phone && msg && msg.includes('[WhatsApp:')) {
@@ -123,20 +135,12 @@ export async function fetchRsvps(): Promise<Rsvp[]> {
     }
   }
 
-  const local = getLocalRsvps();
   if (serverRsvps) {
-    // Mescla local e servidor para garantir que confirmações offline ou em trânsito não se percam
-    const map = new Map<string, Rsvp>();
-    local.forEach(r => map.set(r.id, r));
-    serverRsvps.forEach(r => map.set(r.id, r));
-    const merged = Array.from(map.values()).sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
-    saveLocalRsvps(merged);
-    return merged;
+    saveLocalRsvps(serverRsvps);
+    return serverRsvps;
   }
 
-  return local;
+  return getLocalRsvps();
 }
 
 export async function submitRsvp(payload: { name: string; phone: string; attending: boolean; message?: string }): Promise<Rsvp> {
@@ -258,21 +262,12 @@ export async function fetchOrders(): Promise<GiftOrder[]> {
     }
   }
 
-  const local = getLocalOrders();
   if (serverOrders) {
-    const map = new Map<string, GiftOrder>();
-    // Prioriza os pedidos locais caso estejam em estado recente
-    local.forEach(o => map.set(o.id, o));
-    // Sobrescreve com os dados do servidor (Supabase)
-    serverOrders.forEach(o => map.set(o.id, o));
-    const merged = Array.from(map.values()).sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
-    saveLocalOrders(merged);
-    return merged;
+    saveLocalOrders(serverOrders);
+    return serverOrders;
   }
 
-  return local;
+  return getLocalOrders();
 }
 
 export async function createPayment(params: {

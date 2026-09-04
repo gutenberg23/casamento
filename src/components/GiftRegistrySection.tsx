@@ -3,7 +3,7 @@ import { Gift, GiftOrder, GiftContributor } from '../types';
 import { formatBRL, formatDateBR } from '../utils/formatters';
 import { doesOrderMatchGift } from '../utils/gifts';
 import { JasmineIcon } from './FloralMotifs';
-import { Gift as GiftIcon, Heart, Sparkles, Check, Clock, Search, Filter, Users, X, MessageSquare, CheckCircle2 } from 'lucide-react';
+import { Gift as GiftIcon, Heart, Sparkles, Check, Clock, Filter, Users, X, MessageSquare, CheckCircle2 } from 'lucide-react';
 
 interface GiftRegistrySectionProps {
   gifts: Gift[];
@@ -12,20 +12,7 @@ interface GiftRegistrySectionProps {
 }
 
 export const GiftRegistrySection: React.FC<GiftRegistrySectionProps> = ({ gifts, orders = [], onSelectGift }) => {
-  const [selectedCategory, setSelectedCategory] = useState<string>('todos');
-  const [searchTerm, setSearchTerm] = useState<string>('');
   const [viewingContributorsGift, setViewingContributorsGift] = useState<Gift | null>(null);
-
-  const categories = [
-    { id: 'todos', label: 'Todos os presentes' },
-    { id: 'Cozinha', label: 'Cozinha' },
-    { id: 'Eletros', label: 'Eletroportáteis' },
-    { id: 'Quarto', label: 'Quarto' },
-    { id: 'Banho', label: 'Banho' },
-    { id: 'Casa', label: 'Casa & Decoração' },
-    { id: 'Lazer', label: 'Lazer' },
-    { id: 'Lua de Mel', label: 'Cotas Lua de Mel' },
-  ];
 
   const getGiftPurchaseWeight = (gift: Gift): number => {
     // 0: Comprado / Aprovado (aparece primeiro para incentivar novos presentes)
@@ -46,18 +33,6 @@ export const GiftRegistrySection: React.FC<GiftRegistrySectionProps> = ({ gifts,
 
   const filteredGifts = gifts
     .filter(g => g.active !== false)
-    .filter(g => {
-      if (selectedCategory === 'todos') return true;
-      return g.category === selectedCategory || (!g.category && selectedCategory === 'Casa');
-    })
-    .filter(g => {
-      if (!searchTerm.trim()) return true;
-      const term = searchTerm.toLowerCase();
-      return (
-        g.name.toLowerCase().includes(term) ||
-        (g.description && g.description.toLowerCase().includes(term))
-      );
-    })
     .sort((a, b) => {
       const weightA = getGiftPurchaseWeight(a);
       const weightB = getGiftPurchaseWeight(b);
@@ -125,44 +100,11 @@ export const GiftRegistrySection: React.FC<GiftRegistrySectionProps> = ({ gifts,
           </span>
         </div>
 
-        {/* Search & Categories Bar */}
-        <div className="flex flex-col sm:flex-row gap-3 justify-between items-stretch sm:items-center mb-8">
-          {/* Search */}
-          <div className="relative flex-1 max-w-sm">
-            <Search className="w-4 h-4 text-[#7A6A57] absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Buscar presente..."
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-[#FCF9F3] border border-[#3A2E22]/15 rounded-md text-sm text-[#3A2E22] placeholder-[#7A6A57]/60 focus:outline-none focus:border-[#C67C4E]"
-            />
-          </div>
-
-          {/* Category Pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-            {categories.map(cat => (
-              <button
-                key={cat.id}
-                onClick={() => setSelectedCategory(cat.id)}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
-                  selectedCategory === cat.id
-                    ? 'bg-[#C67C4E] text-[#FCF9F3] shadow-xs font-semibold'
-                    : 'bg-[#FCF9F3] text-[#7A6A57] border border-[#3A2E22]/15 hover:border-[#C67C4E]/40 hover:text-[#3A2E22]'
-                }`}
-              >
-                {cat.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
         {/* Gift Grid */}
         {filteredGifts.length === 0 ? (
           <div className="bg-[#FCF9F3] border border-[#3A2E22]/15 rounded-md p-10 text-center text-[#7A6A57]">
             <GiftIcon className="w-8 h-8 text-[#C67C4E]/60 mx-auto mb-2" />
-            <p className="font-medium text-[#3A2E22]">Nenhum presente encontrado nessa categoria ou busca.</p>
-            <p className="text-xs mt-1">Experimente limpar os filtros de busca.</p>
+            <p className="font-medium text-[#3A2E22]">Nenhum presente disponível no momento.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -180,7 +122,7 @@ export const GiftRegistrySection: React.FC<GiftRegistrySectionProps> = ({ gifts,
 
               const isApproved = effectiveStatus === 'approved';
               const isAwaiting = !isApproved && (effectiveStatus === 'awaiting_confirmation' || effectiveStatus === 'pending');
-              const isTaken = gift.unique_item && isApproved;
+              const isTaken = gift.unique_item ? isApproved : (isApproved && Boolean(effectiveBuyer));
               const isLockedAwaiting = gift.unique_item && isAwaiting;
 
               const contributors = getGiftContributors(gift);
@@ -191,7 +133,7 @@ export const GiftRegistrySection: React.FC<GiftRegistrySectionProps> = ({ gifts,
                   key={gift.id}
                   className={`bg-[#FCF9F3] border rounded-md p-6 flex flex-col justify-between transition-all duration-200 ${
                     isTaken
-                      ? 'border-[#3A2E22]/10 opacity-75'
+                      ? 'border-[#3A2E22]/10 opacity-85 bg-[#FAF5EE]'
                       : isLockedAwaiting
                       ? 'border-amber-700/30 bg-[#FAF5EE]'
                       : 'border-[#3A2E22]/15 hover:border-[#C67C4E]/50 hover:shadow-sm'
@@ -200,13 +142,13 @@ export const GiftRegistrySection: React.FC<GiftRegistrySectionProps> = ({ gifts,
                   <div>
                     {/* Status Badge */}
                     <div className="mb-3">
-                      {isTaken ? (
+                      {isTaken || isApproved ? (
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[#C67C4E]/15 text-[#A25A32]">
-                            <Heart className="w-3 h-3 fill-current" />
+                          <span className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full bg-[#C67C4E]/20 text-[#8C4318] border border-[#C67C4E]/30">
+                            <Heart className="w-3.5 h-3.5 fill-current text-[#A25A32]" />
                             Presenteado por {effectiveBuyer || 'Convidado'}
                           </span>
-                          {contributors.length > 0 && (
+                          {contributors.length > 1 && (
                             <button
                               type="button"
                               onClick={(e) => {
@@ -214,17 +156,17 @@ export const GiftRegistrySection: React.FC<GiftRegistrySectionProps> = ({ gifts,
                                 setViewingContributorsGift(gift);
                               }}
                               className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white text-[#7A6A57] hover:text-[#3A2E22] border border-[#3A2E22]/15 hover:border-[#C67C4E] transition-all cursor-pointer shadow-2xs"
-                              title="Ver detalhes da contribuição"
+                              title="Ver todos os contribuintes"
                             >
                               <Users className="w-2.5 h-2.5" />
-                              <span>Ver</span>
+                              <span>+{contributors.length - 1}</span>
                             </button>
                           )}
                         </div>
-                      ) : isLockedAwaiting ? (
+                      ) : isLockedAwaiting || (isAwaiting && effectiveBuyer) ? (
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-300/60">
-                            <Clock className="w-3 h-3 text-amber-700 animate-pulse" />
+                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full bg-amber-100 text-amber-950 border border-amber-300">
+                            <Clock className="w-3.5 h-3.5 text-amber-700 animate-pulse" />
                             {effectiveBuyer ? `Escolhido por ${effectiveBuyer} · Aguardando confirmação` : 'Aguardando confirmação'}
                           </span>
                           {contributors.length > 0 && (
@@ -310,7 +252,7 @@ export const GiftRegistrySection: React.FC<GiftRegistrySectionProps> = ({ gifts,
                         className="w-full py-2.5 px-4 rounded border border-amber-300 text-amber-900 bg-amber-50/80 text-xs font-semibold cursor-not-allowed text-center flex items-center justify-center gap-1.5"
                       >
                         <Clock className="w-3.5 h-3.5 text-amber-700" />
-                        <span>Aguardando confirmação</span>
+                        <span>Aguardando confirmação{effectiveBuyer ? ` (${effectiveBuyer})` : ''}</span>
                       </button>
                     ) : (
                       <button

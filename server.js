@@ -86,18 +86,8 @@ function getMercadoPagoPublicKey() {
   return null;
 }
 
-// In-memory + File Persistent data store
-const defaultGifts = [
-  { id: "panelas", name: "Jogo de panelas", description: "Um conjunto bom, dos que duram anos.", price_cents: 35000, unique_item: true, active: true, sort_order: 1, category: "Cozinha", created_at: new Date().toISOString() },
-  { id: "airfryer", name: "Air fryer", description: "Pra facilitar o dia a dia na cozinha nova.", price_cents: 45000, unique_item: true, active: true, sort_order: 2, category: "Eletros", created_at: new Date().toISOString() },
-  { id: "liquidificador", name: "Liquidificador", description: "Vitamina de manhã não pode faltar.", price_cents: 22000, unique_item: true, active: true, sort_order: 3, category: "Eletros", created_at: new Date().toISOString() },
-  { id: "cafeteira", name: "Cafeteira", description: "Café fresquinho todo santo dia.", price_cents: 28000, unique_item: true, active: true, sort_order: 4, category: "Cozinha", created_at: new Date().toISOString() },
-  { id: "jogocama", name: "Jogo de cama casal", description: "Lençol bom pra dormir bem.", price_cents: 25000, unique_item: true, active: true, sort_order: 5, category: "Quarto", created_at: new Date().toISOString() },
-  { id: "toalhas", name: "Jogo de toalhas", description: "Pro banheiro novo ficar completo.", price_cents: 18000, unique_item: true, active: true, sort_order: 6, category: "Banho", created_at: new Date().toISOString() },
-  { id: "aspirador", name: "Robô aspirador", description: "Aquele mimo que ninguém se arrepende de dar.", price_cents: 90000, unique_item: true, active: true, sort_order: 7, category: "Casa", created_at: new Date().toISOString() },
-  { id: "churrasco", name: "Kit churrasco", description: "Pra receber a família no fim de semana.", price_cents: 20000, unique_item: true, active: true, sort_order: 8, category: "Lazer", created_at: new Date().toISOString() },
-  { id: "luademel", name: "Cota lua de mel", description: "Contribua com o valor que quiser pra nossa viagem.", price_cents: 10000, unique_item: false, active: true, sort_order: 9, category: "Lua de Mel", created_at: new Date().toISOString() },
-];
+// In-memory data store strictly populated from Supabase database
+const defaultGifts = [];
 
 const DATA_DIR = path.join(__dirname, "data");
 const STORE_FILE = path.join(DATA_DIR, "store.json");
@@ -115,11 +105,9 @@ function loadStore() {
     console.error("Erro ao carregar store.json:", e);
   }
   return {
-    gifts: defaultGifts,
+    gifts: [],
     giftOrders: [],
-    rsvps: [
-      { id: "sample-1", name: "Família Silva", attending: true, guests: 2, message: "Parabéns ao casal lindo! Nos vemos lá!", created_at: new Date(Date.now() - 3600000 * 24).toISOString() }
-    ]
+    rsvps: []
   };
 }
 
@@ -135,11 +123,9 @@ function saveStore() {
 }
 
 const initialStore = loadStore();
-let gifts = initialStore.gifts || [...defaultGifts];
+let gifts = initialStore.gifts || [];
 let giftOrders = initialStore.giftOrders || [];
-let rsvps = initialStore.rsvps || [
-  { id: "sample-1", name: "Família Silva", attending: true, guests: 2, message: "Parabéns ao casal lindo! Nos vemos lá!", created_at: new Date(Date.now() - 3600000 * 24).toISOString() }
-];
+let rsvps = initialStore.rsvps || [];
 
 /* ---------------- Supabase Realtime & Persistence Bridge ---------------- */
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://sxivkbppdhzpelzfppud.supabase.co";
@@ -155,7 +141,14 @@ function getSupabaseHeaders() {
   };
 }
 
-// Sincroniza presentes do Supabase com o store local
+function ensureUUID(id) {
+  if (id && typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+    return id;
+  }
+  return crypto.randomUUID();
+}
+
+// Sincroniza presentes e dados exclusivamente a partir do Supabase
 async function syncFromSupabase() {
   const headers = getSupabaseHeaders();
   if (!headers || !SUPABASE_URL) return;
@@ -167,29 +160,16 @@ async function syncFromSupabase() {
       fetch(`${SUPABASE_URL}/rest/v1/rsvps?select=*`, { headers }).then(r => r.json()).catch(() => null)
     ]);
 
-    if (Array.isArray(gRes) && gRes.length > 0) {
-      const sbMap = new Map();
-      gRes.forEach(g => sbMap.set(g.id, g));
-      gifts.forEach(g => {
-        if (!sbMap.has(g.id)) {
-          pushGiftToSupabase("create", g);
-          sbMap.set(g.id, g);
-        }
-      });
-      gifts = Array.from(sbMap.values()).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    if (Array.isArray(gRes)) {
+      gifts = gRes.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
     }
 
-    if (Array.isArray(oRes) && oRes.length > 0) {
-      const oMap = new Map();
-      giftOrders.forEach(o => oMap.set(o.id, o));
-      oRes.forEach(o => oMap.set(o.id, o));
-      giftOrders = Array.from(oMap.values());
+    if (Array.isArray(oRes)) {
+      giftOrders = oRes;
     }
 
-    if (Array.isArray(rRes) && rRes.length > 0) {
-      const rMap = new Map();
-      rsvps.forEach(r => rMap.set(r.id, r));
-      rRes.forEach(r => {
+    if (Array.isArray(rRes)) {
+      rsvps = rRes.map(r => {
         let phone = r.phone || "";
         let cleanMessage = r.message || null;
         if (!phone && cleanMessage && cleanMessage.includes("[WhatsApp:")) {
@@ -199,7 +179,7 @@ async function syncFromSupabase() {
             cleanMessage = cleanMessage.replace(/\[WhatsApp:\s*[^\]]+\]\s*/, "").trim() || null;
           }
         }
-        rMap.set(r.id, {
+        return {
           id: String(r.id),
           name: String(r.name || ""),
           phone,
@@ -207,14 +187,13 @@ async function syncFromSupabase() {
           guests: Number(r.guests) || 1,
           message: cleanMessage,
           created_at: r.created_at || new Date().toISOString()
-        });
+        };
       });
-      rsvps = Array.from(rMap.values());
     }
 
     saveStore();
   } catch (e) {
-    console.error("[Supabase Bridge] Erro na sincronização inicial:", e.message);
+    console.error("[Supabase Bridge] Erro na sincronização com Supabase:", e.message);
   }
 }
 
@@ -253,23 +232,50 @@ async function pushGiftToSupabase(action, gift) {
 async function pushOrderToSupabase(order) {
   const headers = getSupabaseHeaders();
   if (!headers || !SUPABASE_URL || !order) return;
+  const orderId = ensureUUID(order.id);
+  order.id = orderId;
   try {
-    const payload = {
-      id: order.id,
+    const fullPayload = {
+      id: orderId,
       gift_id: order.gift_id,
       buyer_name: order.buyer_name,
       buyer_message: order.buyer_message || null,
       amount_cents: Number(order.amount_cents),
-      payment_method: order.payment_method || "pix",
+      payment_method: order.payment_method || "pix_direct",
       status: order.status || "pending",
       stripe_session_id: order.stripe_session_id || null,
-      created_at: order.created_at || new Date().toISOString()
+      created_at: order.created_at || new Date().toISOString(),
+      updated_at: order.updated_at || new Date().toISOString()
     };
-    await fetch(`${SUPABASE_URL}/rest/v1/gift_orders?on_conflict=id`, {
+    let res = await fetch(`${SUPABASE_URL}/rest/v1/gift_orders?on_conflict=id`, {
       method: "POST",
       headers: { ...headers, Prefer: "resolution=merge-duplicates,return=representation" },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(fullPayload)
     });
+    if (!res.ok) {
+      // Retry with baseline columns supported by the current Supabase schema
+      const basePayload = {
+        id: orderId,
+        gift_id: order.gift_id,
+        buyer_name: order.buyer_name,
+        amount_cents: Number(order.amount_cents),
+        status: order.status || "pending",
+        created_at: order.created_at || new Date().toISOString(),
+        updated_at: order.updated_at || new Date().toISOString()
+      };
+      res = await fetch(`${SUPABASE_URL}/rest/v1/gift_orders?on_conflict=id`, {
+        method: "POST",
+        headers: { ...headers, Prefer: "resolution=merge-duplicates,return=representation" },
+        body: JSON.stringify(basePayload)
+      });
+      if (!res.ok) {
+        console.error("[Supabase Bridge] Erro ao sincronizar pedido:", res.status, await res.text());
+      } else {
+        console.log("[Supabase Bridge] Pedido salvo com sucesso no Supabase (baseline):", orderId);
+      }
+    } else {
+      console.log("[Supabase Bridge] Pedido salvo com sucesso no Supabase (full):", orderId);
+    }
   } catch (e) {
     console.error("[Supabase Bridge] Erro ao sincronizar pedido:", e.message);
   }
@@ -278,32 +284,54 @@ async function pushOrderToSupabase(order) {
 async function pushRsvpToSupabase(rsvp) {
   const headers = getSupabaseHeaders();
   if (!headers || !SUPABASE_URL || !rsvp) return;
-  try {
-    const cleanPhone = rsvp.phone ? String(rsvp.phone).trim() : "";
-    let combinedMessage = rsvp.message ? String(rsvp.message).trim() : "";
-    if (cleanPhone) {
-      combinedMessage = combinedMessage
-        ? `[WhatsApp: ${cleanPhone}] ${combinedMessage}`
-        : `[WhatsApp: ${cleanPhone}]`;
-    }
+  const rsvpId = ensureUUID(rsvp.id);
+  rsvp.id = rsvpId;
+  const cleanPhone = rsvp.phone ? String(rsvp.phone).trim() : "";
+  const userMsg = rsvp.message ? String(rsvp.message).trim() : "";
 
-    const payload = {
-      id: rsvp.id,
+  try {
+    const fullPayload = {
+      id: rsvpId,
       name: rsvp.name,
-      attending: rsvp.attending,
+      phone: cleanPhone || null,
+      attending: Boolean(rsvp.attending),
       guests: Number(rsvp.guests) || 1,
-      message: combinedMessage || null,
+      message: userMsg || null,
       created_at: rsvp.created_at || new Date().toISOString()
     };
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/rsvps`, {
+    let res = await fetch(`${SUPABASE_URL}/rest/v1/rsvps?on_conflict=id`, {
       method: "POST",
       headers: { ...headers, Prefer: "resolution=merge-duplicates,return=representation" },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(fullPayload)
     });
     if (!res.ok) {
-      console.error("[Supabase Bridge] Erro ao sincronizar RSVP:", res.status, await res.text());
+      // Fallback: embed phone in message if phone column doesn't exist yet
+      let combinedMessage = userMsg;
+      if (cleanPhone) {
+        combinedMessage = combinedMessage
+          ? `[WhatsApp: ${cleanPhone}] ${combinedMessage}`
+          : `[WhatsApp: ${cleanPhone}]`;
+      }
+      const fallbackPayload = {
+        id: rsvpId,
+        name: rsvp.name,
+        attending: Boolean(rsvp.attending),
+        guests: Number(rsvp.guests) || 1,
+        message: combinedMessage || null,
+        created_at: rsvp.created_at || new Date().toISOString()
+      };
+      res = await fetch(`${SUPABASE_URL}/rest/v1/rsvps?on_conflict=id`, {
+        method: "POST",
+        headers: { ...headers, Prefer: "resolution=merge-duplicates,return=representation" },
+        body: JSON.stringify(fallbackPayload)
+      });
+      if (!res.ok) {
+        console.error("[Supabase Bridge] Erro ao sincronizar RSVP:", res.status, await res.text());
+      } else {
+        console.log("[Supabase Bridge] RSVP salvo com sucesso no Supabase (fallback):", rsvpId);
+      }
     } else {
-      console.log("[Supabase Bridge] RSVP salvo com sucesso no Supabase:", rsvp.id);
+      console.log("[Supabase Bridge] RSVP salvo com sucesso no Supabase (full):", rsvpId);
     }
   } catch (e) {
     console.error("[Supabase Bridge] Erro ao sincronizar RSVP:", e.message);
@@ -567,7 +595,7 @@ app.post(["/api/create-payment", "/functions/v1/create-payment", "/.netlify/func
       ? gift.price_cents
       : (amount_cents && amount_cents >= 1000 ? amount_cents : gift.price_cents);
 
-    const orderId = `order_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const orderId = ensureUUID(req.body?.order_id);
     const selectedMethod = payment_method || "pix_direct";
 
     const order = {
@@ -769,11 +797,9 @@ app.get(["/api/payment-status", "/api/stripe-status", "/.netlify/functions/strip
 // Confirmação do Pix direto feita pelo convidado
 app.post("/api/confirm-pix-order", (req, res) => {
   const { order_id, gift_id, buyer_name, amount_cents, buyer_message } = req.body;
-  if (!order_id) {
-    return res.status(400).json({ error: "order_id é obrigatório." });
-  }
+  const validOrderId = ensureUUID(order_id);
 
-  let order = giftOrders.find(o => o.id === order_id);
+  let order = giftOrders.find(o => o.id === validOrderId || o.id === order_id);
   const matchedGift = gifts.find(g => g.id === gift_id || g.name === gift_id);
   const resolvedAmount = (amount_cents !== undefined && !isNaN(Number(amount_cents)) && Number(amount_cents) > 0)
     ? Number(amount_cents)
@@ -781,7 +807,7 @@ app.post("/api/confirm-pix-order", (req, res) => {
 
   if (!order) {
     order = {
-      id: order_id,
+      id: validOrderId,
       gift_id: matchedGift ? matchedGift.id : (gift_id || "presente"),
       buyer_name: buyer_name ? String(buyer_name).trim() : "Convidado",
       buyer_message: buyer_message ? String(buyer_message).trim() : null,
@@ -794,12 +820,12 @@ app.post("/api/confirm-pix-order", (req, res) => {
     };
     giftOrders.unshift(order);
   } else {
+    order.id = validOrderId;
     order.status = "awaiting_confirmation";
     order.updated_at = new Date().toISOString();
     if (amount_cents && Number(amount_cents) > 0) {
       order.amount_cents = Number(amount_cents);
     } else if (matchedGift && (!order.amount_cents || order.amount_cents === 10000)) {
-      // Ajusta caso estivesse com fallback incorreto de 10000
       order.amount_cents = matchedGift.price_cents;
     }
     if (buyer_name) order.buyer_name = String(buyer_name).trim();
@@ -819,13 +845,14 @@ app.post("/api/confirm-card-order", async (req, res) => {
     return res.status(400).json({ error: "Identificador do pedido ou sessão é obrigatório." });
   }
 
-  let order = giftOrders.find(o => o.id === order_id || (session_id && o.stripe_session_id === session_id));
+  const validOrderId = ensureUUID(order_id);
+  let order = giftOrders.find(o => o.id === validOrderId || o.id === order_id || (session_id && o.stripe_session_id === session_id));
 
   // Se não foi encontrado pelo ID mas veio gift_name e order_id, tenta localizar por nome ou cria se necessário
   if (!order && order_id) {
     let matchedGift = gifts.find(g => g.id === order_id || g.name === gift_name || g.id === gift_name);
     order = {
-      id: order_id,
+      id: validOrderId,
       gift_id: matchedGift ? matchedGift.id : (gift_name || "presente"),
       buyer_name: "Convidado",
       buyer_message: null,
@@ -838,6 +865,7 @@ app.post("/api/confirm-card-order", async (req, res) => {
     };
     giftOrders.unshift(order);
   } else if (order) {
+    order.id = validOrderId;
     order.status = "approved";
     order.updated_at = new Date().toISOString();
     if (session_id && !order.stripe_session_id) {

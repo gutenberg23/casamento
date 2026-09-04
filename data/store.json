@@ -141,106 +141,6 @@
       "created_at": "2026-09-03T23:57:42.087305+00:00"
     },
     {
-      "id": "panelas",
-      "name": "Jogo de panelas",
-      "description": "Um conjunto bom, dos que duram anos.",
-      "price_cents": 35000,
-      "unique_item": true,
-      "active": true,
-      "sort_order": 1,
-      "created_at": "2026-09-01T18:10:01.411325+00:00"
-    },
-    {
-      "id": "airfryer",
-      "name": "Air fryer",
-      "description": "Pra facilitar o dia a dia na cozinha nova.",
-      "price_cents": 45000,
-      "unique_item": true,
-      "active": true,
-      "sort_order": 2,
-      "created_at": "2026-09-01T18:10:01.411325+00:00"
-    },
-    {
-      "id": "liquidificador",
-      "name": "Liquidificador",
-      "description": "Vitamina de manhã não pode faltar.",
-      "price_cents": 22000,
-      "unique_item": true,
-      "active": true,
-      "sort_order": 3,
-      "created_at": "2026-09-01T18:10:01.411325+00:00"
-    },
-    {
-      "id": "cafeteira",
-      "name": "Cafeteira",
-      "description": "Café fresquinho todo santo dia.",
-      "price_cents": 28000,
-      "unique_item": true,
-      "active": true,
-      "sort_order": 4,
-      "created_at": "2026-09-01T18:10:01.411325+00:00"
-    },
-    {
-      "id": "jogocama",
-      "name": "Jogo de cama casal",
-      "description": "Lençol bom pra dormir bem.",
-      "price_cents": 25000,
-      "unique_item": true,
-      "active": true,
-      "sort_order": 5,
-      "created_at": "2026-09-01T18:10:01.411325+00:00"
-    },
-    {
-      "id": "toalhas",
-      "name": "Jogo de toalhas",
-      "description": "Pro banheiro novo ficar completo.",
-      "price_cents": 18000,
-      "unique_item": true,
-      "active": true,
-      "sort_order": 6,
-      "created_at": "2026-09-01T18:10:01.411325+00:00"
-    },
-    {
-      "id": "aspirador",
-      "name": "Robô aspirador",
-      "description": "Aquele mimo que ninguém se arrepende de dar.",
-      "price_cents": 90000,
-      "unique_item": true,
-      "active": true,
-      "sort_order": 7,
-      "created_at": "2026-09-01T18:10:01.411325+00:00"
-    },
-    {
-      "id": "churrasco",
-      "name": "Kit churrasco",
-      "description": "Pra receber a família no fim de semana.",
-      "price_cents": 20000,
-      "unique_item": true,
-      "active": true,
-      "sort_order": 8,
-      "created_at": "2026-09-01T18:10:01.411325+00:00"
-    },
-    {
-      "id": "luademel",
-      "name": "Cota lua de mel",
-      "description": "Contribua com o valor que quiser pra nossa viagem.",
-      "price_cents": 10000,
-      "unique_item": false,
-      "active": true,
-      "sort_order": 9,
-      "created_at": "2026-09-01T18:10:01.411325+00:00"
-    },
-    {
-      "id": "faqueiro-inox",
-      "name": "Faqueiro Inox",
-      "description": "Conjunto completo de talheres",
-      "price_cents": 15000,
-      "unique_item": true,
-      "active": true,
-      "sort_order": 10,
-      "created_at": "2026-09-01T22:23:23.236621+00:00"
-    },
-    {
       "id": "kit-6-potes-de-vidro",
       "name": "Kit 6 Potes de Vidro",
       "description": "Porta Temperos",
@@ -261,58 +161,25 @@
       "created_at": "2026-09-04T01:02:32.855861+00:00"
     }
   ],
-  "giftOrders": [
-    {
-      "id": "order_1788300790835_dxy0r",
-      "gift_id": "panelas",
-      "buyer_name": "Teste Convidado",
-      "buyer_message": null,
-      "amount_cents": 35000,
-      "payment_method": "stripe",
-      "status": "pending",
-      "mp_preference_id": null,
-      "stripe_session_id": "cs_live_a1qutjiqIKtaHYDjLdjy94YjY1ZtgI0M9YfYiFPzQ7Ml1tzMkd69OAppr7",
-      "asaas_payment_id": null,
-      "created_at": "2026-09-01T22:13:10.835Z",
-      "updated_at": "2026-09-01T22:13:10.835Z"
-    },
-    {
-      "id": "order_1788301196030_m64qu",
-      "gift_id": "churrasco",
-      "buyer_name": "Asac dcfd",
-      "buyer_message": null,
-      "amount_cents": 20000,
-      "payment_method": "stripe",
-      "status": "pending",
-      "mp_preference_id": null,
-      "stripe_session_id": "cs_live_a1VsWllyhwCTBmsKdAMtt0lQpcffNVINgFXCmgoQzvookXfI7IchJJCwhv",
-      "asaas_payment_id": null,
-      "created_at": "2026-09-01T22:19:56.030Z",
-      "updated_at": "2026-09-01T22:19:56.030Z"
-    },
-    {
-      "id": "order_1788306064926_zpfxx",
-      "gift_id": "airfryer",
-      "buyer_name": "Teste",
-      "buyer_message": null,
-      "amount_cents": 45000,
-      "payment_method": "stripe",
-      "status": "pending",
-      "mp_preference_id": null,
-      "stripe_session_id": "cs_live_a1pah8ksSOgZOlJ8RnOMwC5TV9aXaqdHoCLXqmQgpZE06zzcQ7KGjfkbWQ",
-      "asaas_payment_id": null,
-      "created_at": "2026-09-01T23:41:04.926Z",
-      "updated_at": "2026-09-01T23:41:04.926Z"
-    }
-  ],
+  "giftOrders": [],
   "rsvps": [
     {
-      "id": "sample-1",
-      "name": "Família Silva",
+      "id": "d969f614-7a02-44f9-9b7e-5ba3f3e6c5f1",
+      "name": "Gutenberg Nunes de Almeida de Melo",
+      "phone": "(21) 98387-6293",
       "attending": true,
-      "guests": 2,
-      "message": "Parabéns ao casal lindo! Nos vemos lá!",
-      "created_at": "2026-08-31T19:44:46.324Z"
+      "guests": 1,
+      "message": null,
+      "created_at": "2026-09-04T01:17:10.028+00:00"
+    },
+    {
+      "id": "944bd929-29f4-4269-9aa8-4089198a0eeb",
+      "name": "Iasmin de Melo de Almeida",
+      "phone": "(21) 99229-7635",
+      "attending": true,
+      "guests": 1,
+      "message": null,
+      "created_at": "2026-09-04T01:17:59.404+00:00"
     }
   ]
 }

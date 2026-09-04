@@ -5,17 +5,17 @@ const headers = {
   "Content-Type": "application/json"
 };
 
-const defaultGifts = [
-  { id: "panelas", name: "Jogo de panelas", description: "Um conjunto bom, dos que duram anos.", price_cents: 35000, unique_item: true, active: true, sort_order: 1 },
-  { id: "airfryer", name: "Air fryer", description: "Pra facilitar o dia a dia na cozinha nova.", price_cents: 45000, unique_item: true, active: true, sort_order: 2 },
-  { id: "liquidificador", name: "Liquidificador", description: "Vitamina de manhã não pode faltar.", price_cents: 22000, unique_item: true, active: true, sort_order: 3 },
-  { id: "cafeteira", name: "Cafeteira", description: "Café fresquinho todo santo dia.", price_cents: 28000, unique_item: true, active: true, sort_order: 4 },
-  { id: "jogocama", name: "Jogo de cama casal", description: "Lençol bom pra dormir bem.", price_cents: 25000, unique_item: true, active: true, sort_order: 5 },
-  { id: "toalhas", name: "Jogo de toalhas", description: "Pro banheiro novo ficar completo.", price_cents: 18000, unique_item: true, active: true, sort_order: 6 },
-  { id: "aspirador", name: "Robô aspirador", description: "Aquele mimo que ninguém se arrepende de dar.", price_cents: 90000, unique_item: true, active: true, sort_order: 7 },
-  { id: "churrasco", name: "Kit churrasco", description: "Pra receber a família no fim de semana.", price_cents: 20000, unique_item: true, active: true, sort_order: 8 },
-  { id: "luademel", name: "Cota lua de mel", description: "Contribua com o valor que quiser pra nossa viagem.", price_cents: 10000, unique_item: false, active: true, sort_order: 9 }
-];
+const defaultGifts = [];
+
+function normalizeStr(s) {
+  if (!s) return "";
+  return String(s)
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") {
@@ -39,7 +39,7 @@ export async function handler(event) {
       const gifts = gRes && gRes.ok ? await gRes.json().catch(() => null) : null;
       const orders = oRes && oRes.ok ? await oRes.json().catch(() => null) : null;
 
-      const baseGifts = Array.isArray(gifts) && gifts.length > 0 ? gifts : defaultGifts;
+      const baseGifts = Array.isArray(gifts) ? gifts : [];
       const nonRejectedOrders = Array.isArray(orders)
         ? orders.filter(o => o && o.status !== "rejected")
         : [];
@@ -47,11 +47,14 @@ export async function handler(event) {
       const consolidated = baseGifts.map(g => {
         const gId = String(g.id || '').trim().toLowerCase();
         const gName = String(g.name || '').trim().toLowerCase();
+        const normGId = normalizeStr(gId);
+        const normGName = normalizeStr(gName);
 
         const matchingOrders = nonRejectedOrders.filter(o => {
-          if (!o.gift_id) return false;
+          if (!o || !o.gift_id) return false;
           const oGId = String(o.gift_id).trim().toLowerCase();
-          return oGId === gId || oGId === gName;
+          const normOGId = normalizeStr(oGId);
+          return oGId === gId || oGId === gName || (normOGId && (normOGId === normGId || normOGId === normGName));
         });
 
         const activeOrder = 
@@ -62,7 +65,7 @@ export async function handler(event) {
         const contributors = matchingOrders.map(o => ({
           id: o.id,
           buyer_name: o.buyer_name,
-          buyer_message: o.buyer_message,
+          buyer_message: o.buyer_message || null,
           amount_cents: o.amount_cents,
           status: o.status,
           created_at: o.created_at
@@ -93,6 +96,6 @@ export async function handler(event) {
   return {
     statusCode: 200,
     headers,
-    body: JSON.stringify(defaultGifts)
+    body: JSON.stringify([])
   };
 }
