@@ -354,8 +354,8 @@ function checkAdminCode(inputCode) {
   return false;
 }
 
-// Favicon handler
-const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="#c67c4e"/><path d="M50 72l-3.6-3.3C33.6 57.3 25 49.5 25 40c0-7.7 6.3-14 14-14 4.4 0 8.6 2 11 5.3 2.4-3.3 6.6-5.3 11-5.3 7.7 0 14 6.3 14 14 0 9.5-8.6 17.3-21.4 28.7L50 72z" fill="#fff"/></svg>`;
+// Favicon handler - matching the logo heart icon (Lucide Heart, terracotta with 40% fill)
+const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32" fill="none"><path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" fill="rgba(198, 124, 78, 0.4)" stroke="#C67C4E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 app.get(["/favicon.ico", "/favicon.svg"], (req, res) => {
   res.setHeader("Content-Type", "image/svg+xml");
