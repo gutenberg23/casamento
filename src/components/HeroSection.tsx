@@ -71,7 +71,8 @@ export const HeroSection: React.FC = () => {
 
         <div className="mt-8 space-y-3 text-[#7A6A57] text-lg sm:text-xl font-normal max-w-lg mx-auto leading-relaxed">
           <p>
-            Em cada momento da nossa trajetória, Deus esteve conosco.
+            Em cada momento da nossa trajetória,<br />
+            <span className="whitespace-nowrap">Deus esteve conosco.</span>
           </p>
           <p>
             E é com gratidão a Ele que queremos te convidar para essa nova etapa de nossas vidas.
