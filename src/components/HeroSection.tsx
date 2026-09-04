@@ -69,9 +69,14 @@ export const HeroSection: React.FC = () => {
           Gutenberg
         </h1>
 
-        <p className="mt-6 text-[#7A6A57] text-lg sm:text-xl font-normal max-w-lg mx-auto leading-relaxed">
-          Depois do sim no civil, queremos comemorar com quem a gente ama. Vem celebrar esse começo com a gente.
-        </p>
+        <div className="mt-8 space-y-3 text-[#7A6A57] text-lg sm:text-xl font-normal max-w-lg mx-auto leading-relaxed">
+          <p>
+            Em cada momento da nossa trajetória, Deus esteve conosco.
+          </p>
+          <p>
+            E é com gratidão a Ele que queremos te convidar para essa nova etapa de nossas vidas.
+          </p>
+        </div>
 
         {/* Date Pill */}
         <div className="inline-flex flex-wrap items-center justify-center gap-3 mt-8 px-6 py-3 bg-[#FCF9F3] border border-[#3A2E22]/15 rounded-full text-[#3A2E22] text-sm sm:text-base shadow-xs">
