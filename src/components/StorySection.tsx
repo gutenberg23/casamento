@@ -7,7 +7,7 @@ export const StorySection: React.FC = () => {
         <hr className="border-t border-[#3A2E22]/15 w-16 mx-auto mb-8" />
 
         <p className="text-lg sm:text-xl text-[#7A6A57] leading-relaxed font-normal">
-          Já assinamos os papéis — agora é hora de brindar. Preparamos uma tarde de comida boa, música e gente querida
+          Depois da assinatura dos papéis, é hora de brindar. Preparamos uma tarde de comida boa, música e gente querida
           no <strong className="text-[#3A2E22] font-semibold">Espaço Picnic</strong>, e nada nos deixaria mais felizes
           do que ter você lá com a gente.
         </p>
