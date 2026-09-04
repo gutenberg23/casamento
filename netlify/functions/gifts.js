@@ -30,54 +30,64 @@ export async function handler(event) {
       const [gRes, oRes] = await Promise.all([
         fetch(`${SUPABASE_URL}/rest/v1/gifts?select=*&order=sort_order`, {
           headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
-        }),
+        }).catch(() => null),
         fetch(`${SUPABASE_URL}/rest/v1/gift_orders?select=*`, {
           headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
-        })
+        }).catch(() => null)
       ]);
 
-      const [gifts, orders] = await Promise.all([gRes.json(), oRes.json()]);
+      const gifts = gRes && gRes.ok ? await gRes.json().catch(() => null) : null;
+      const orders = oRes && oRes.ok ? await oRes.json().catch(() => null) : null;
 
-      if (Array.isArray(gifts) && gifts.length > 0) {
-        const nonRejectedOrders = Array.isArray(orders)
-          ? orders.filter(o => o.status !== "rejected")
-          : [];
+      const baseGifts = Array.isArray(gifts) && gifts.length > 0 ? gifts : defaultGifts;
+      const nonRejectedOrders = Array.isArray(orders)
+        ? orders.filter(o => o && o.status !== "rejected")
+        : [];
 
-        const consolidated = gifts.map(g => {
-          const matchingOrders = nonRejectedOrders.filter(o => o.gift_id === g.id);
-          const activeOrder = 
-            matchingOrders.find(o => o.status === "approved") ||
-            matchingOrders.find(o => o.status === "awaiting_confirmation") ||
-            matchingOrders.find(o => o.status === "pending");
+      const consolidated = baseGifts.map(g => {
+        const gId = String(g.id || '').trim().toLowerCase();
+        const gName = String(g.name || '').trim().toLowerCase();
 
-          const contributors = matchingOrders.map(o => ({
-            id: o.id,
-            buyer_name: o.buyer_name,
-            buyer_message: o.buyer_message,
-            amount_cents: o.amount_cents,
-            status: o.status,
-            created_at: o.created_at
-          }));
-
-          return {
-            ...g,
-            order_id: activeOrder?.id || null,
-            buyer_name: activeOrder?.buyer_name || null,
-            order_status: activeOrder?.status || null,
-            order_amount_cents: activeOrder?.amount_cents || null,
-            payment_method: activeOrder?.payment_method || null,
-            contributors,
-            contributors_count: contributors.length
-          };
+        const matchingOrders = nonRejectedOrders.filter(o => {
+          if (!o.gift_id) return false;
+          const oGId = String(o.gift_id).trim().toLowerCase();
+          return oGId === gId || oGId === gName;
         });
 
+        const activeOrder = 
+          matchingOrders.find(o => o.status === "approved") ||
+          matchingOrders.find(o => o.status === "awaiting_confirmation") ||
+          matchingOrders.find(o => o.status === "pending");
+
+        const contributors = matchingOrders.map(o => ({
+          id: o.id,
+          buyer_name: o.buyer_name,
+          buyer_message: o.buyer_message,
+          amount_cents: o.amount_cents,
+          status: o.status,
+          created_at: o.created_at
+        }));
+
         return {
-          statusCode: 200,
-          headers,
-          body: JSON.stringify(consolidated)
+          ...g,
+          order_id: activeOrder?.id || null,
+          buyer_name: activeOrder?.buyer_name || null,
+          order_status: activeOrder?.status || null,
+          order_amount_cents: activeOrder?.amount_cents || null,
+          payment_method: activeOrder?.payment_method || null,
+          contributors,
+          contributors_count: contributors.length
         };
-      }
-    } catch (e) {}
+      });
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify(consolidated)
+      };
+    } catch (e) {
+      console.error("Erro na função gifts:", e);
+    }
   }
 
   return {

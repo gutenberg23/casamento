@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Gift, GiftOrder, Rsvp } from './types';
-import { fetchGifts, fetchRsvps, fetchOrders } from './services/api';
+import { fetchGifts, fetchRsvps, fetchOrders, saveLocalGifts } from './services/api';
+import { consolidateGiftsWithOrders } from './utils/gifts';
 import { JasmineSvgDefs } from './components/FloralMotifs';
 import { Navbar } from './components/Navbar';
 import { HeroSection } from './components/HeroSection';
@@ -31,7 +32,9 @@ export const App: React.FC = () => {
         fetchRsvps(),
         fetchOrders()
       ]);
-      setGifts(giftsData);
+      const consolidatedGifts = consolidateGiftsWithOrders(giftsData, ordersData);
+      setGifts(consolidatedGifts);
+      saveLocalGifts(consolidatedGifts);
       setRsvps(rsvpsData);
       setOrders(ordersData);
     } catch (e) {
@@ -42,6 +45,17 @@ export const App: React.FC = () => {
   useEffect(() => {
     loadAllData();
   }, []);
+
+  // Mantém os presentes sempre sincronizados caso a lista de pedidos seja alterada
+  useEffect(() => {
+    if (orders.length > 0) {
+      setGifts(prev => {
+        const updated = consolidateGiftsWithOrders(prev, orders);
+        saveLocalGifts(updated);
+        return updated;
+      });
+    }
+  }, [orders]);
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F7F1E6] text-[#3A2E22]">

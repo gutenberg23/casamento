@@ -65,18 +65,21 @@ export function saveLocalOrders(orders: GiftOrder[]): void {
 
 // Service methods
 export async function fetchGifts(): Promise<Gift[]> {
-  try {
-    const res = await fetch('/api/gifts', { cache: 'no-store' });
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) {
-        console.log(`[API] fetchGifts retornou ${data.length} presentes do servidor.`);
-        saveLocalGifts(data);
-        return data;
+  const routes = ['/api/gifts', '/.netlify/functions/gifts'];
+  for (const route of routes) {
+    try {
+      const res = await fetch(route, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          console.log(`[API] fetchGifts retornou ${data.length} presentes de ${route}.`);
+          saveLocalGifts(data);
+          return data;
+        }
       }
+    } catch (e) {
+      console.warn(`[API] ${route} indisponível:`, e);
     }
-  } catch (e) {
-    console.warn('[API] /api/gifts indisponível, usando cache local:', e);
   }
   const local = getLocalGifts();
   console.log(`[API] Utilizando presentes do cache local: ${local.length} itens.`);
@@ -421,7 +424,12 @@ export async function adminUpdateOrderStatus(
   const targetOrder = updatedOrders.find(o => o.id === orderId);
   if (targetOrder) {
     const gifts = getLocalGifts();
-    const gIdx = gifts.findIndex(g => g.id === targetOrder.gift_id);
+    const gIdx = gifts.findIndex(g => {
+      const gId = String(g.id || '').trim().toLowerCase();
+      const gName = String(g.name || '').trim().toLowerCase();
+      const oGId = String(targetOrder.gift_id || '').trim().toLowerCase();
+      return gId === oGId || gName === oGId;
+    });
     if (gIdx >= 0 && gifts[gIdx].unique_item) {
       if (status === 'rejected') {
         // Se foi rejeitado/cancelado, libera o presente para novos compradores

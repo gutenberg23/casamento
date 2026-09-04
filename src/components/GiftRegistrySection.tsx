@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Gift, GiftOrder, GiftContributor } from '../types';
 import { formatBRL, formatDateBR } from '../utils/formatters';
+import { doesOrderMatchGift } from '../utils/gifts';
 import { JasmineIcon } from './FloralMotifs';
 import { Gift as GiftIcon, Heart, Sparkles, Check, Clock, Search, Filter, Users, X, MessageSquare, CheckCircle2 } from 'lucide-react';
 
@@ -44,7 +45,7 @@ export const GiftRegistrySection: React.FC<GiftRegistrySectionProps> = ({ gifts,
 
   // Helper para buscar todos os contribuintes de um presente
   const getGiftContributors = (gift: Gift): GiftContributor[] => {
-    const matchingOrders = orders.filter(o => o.gift_id === gift.id && o.status !== 'rejected');
+    const matchingOrders = orders.filter(o => doesOrderMatchGift(o, gift) && o.status !== 'rejected');
     
     // Constrói lista combinada entre gift.contributors e orders
     const map = new Map<string, GiftContributor>();
@@ -142,8 +143,19 @@ export const GiftRegistrySection: React.FC<GiftRegistrySectionProps> = ({ gifts,
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {filteredGifts.map(gift => {
-              const isApproved = gift.order_status === 'approved';
-              const isAwaiting = gift.order_status === 'awaiting_confirmation' || gift.order_status === 'pending';
+              const matchingOrders = orders.filter(o => doesOrderMatchGift(o, gift) && o.status !== 'rejected');
+              const approvedOrder = matchingOrders.find(o => o.status === 'approved');
+              const awaitingOrder = matchingOrders.find(o => o.status === 'awaiting_confirmation' || o.status === 'pending');
+
+              // Status derivado dos pedidos e do presente garantindo sincronização instantânea
+              const effectiveStatus = approvedOrder
+                ? 'approved'
+                : (awaitingOrder ? (awaitingOrder.status || 'awaiting_confirmation') : gift.order_status);
+
+              const effectiveBuyer = approvedOrder?.buyer_name || awaitingOrder?.buyer_name || gift.buyer_name;
+
+              const isApproved = effectiveStatus === 'approved';
+              const isAwaiting = !isApproved && (effectiveStatus === 'awaiting_confirmation' || effectiveStatus === 'pending');
               const isTaken = gift.unique_item && isApproved;
               const isLockedAwaiting = gift.unique_item && isAwaiting;
 
@@ -168,7 +180,7 @@ export const GiftRegistrySection: React.FC<GiftRegistrySectionProps> = ({ gifts,
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[#C67C4E]/15 text-[#A25A32]">
                             <Heart className="w-3 h-3 fill-current" />
-                            Presenteado por {gift.buyer_name || 'Convidado'}
+                            Presenteado por {effectiveBuyer || 'Convidado'}
                           </span>
                           {contributors.length > 0 && (
                             <button
@@ -189,7 +201,7 @@ export const GiftRegistrySection: React.FC<GiftRegistrySectionProps> = ({ gifts,
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-300/60">
                             <Clock className="w-3 h-3 text-amber-700 animate-pulse" />
-                            {gift.buyer_name ? `Escolhido por ${gift.buyer_name} · Aguardando confirmação` : 'Aguardando confirmação'}
+                            {effectiveBuyer ? `Escolhido por ${effectiveBuyer} · Aguardando confirmação` : 'Aguardando confirmação'}
                           </span>
                           {contributors.length > 0 && (
                             <button
@@ -263,9 +275,10 @@ export const GiftRegistrySection: React.FC<GiftRegistrySectionProps> = ({ gifts,
                     {isTaken ? (
                       <button
                         disabled
-                        className="w-full py-2.5 px-4 rounded border border-[#3A2E22]/15 text-[#7A6A57] bg-[#EFE3D0]/40 text-xs font-semibold cursor-not-allowed text-center"
+                        className="w-full py-2.5 px-4 rounded border border-[#3A2E22]/15 text-[#7A6A57] bg-[#EFE3D0]/40 text-xs font-semibold cursor-not-allowed text-center flex items-center justify-center gap-1.5"
                       >
-                        Já foi presenteado
+                        <Check className="w-3.5 h-3.5 text-[#5C6748]" />
+                        <span>Já foi presenteado{effectiveBuyer ? ` (${effectiveBuyer})` : ''}</span>
                       </button>
                     ) : isLockedAwaiting ? (
                       <button

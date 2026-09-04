@@ -234,7 +234,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     try {
       await adminUpdateOrderStatus(adminCodeInput, orderId, newStatus);
       await refreshOrdersList();
-      onRefreshData();
+      await onRefreshData();
     } catch (e: any) {
       alert(e.message || 'Erro ao alterar status do pedido.');
       await refreshOrdersList();

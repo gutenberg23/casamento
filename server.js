@@ -368,8 +368,15 @@ function getGiftStatusList() {
   return gifts
     .filter(g => g.active !== false)
     .map(g => {
+      const gId = String(g.id || '').trim().toLowerCase();
+      const gName = String(g.name || '').trim().toLowerCase();
+
       // Find orders for this gift: prioritize approved > awaiting_confirmation > recent pending
-      const giftMatchingOrders = giftOrders.filter(o => o.gift_id === g.id && o.status !== "rejected");
+      const giftMatchingOrders = giftOrders.filter(o => {
+        if (!o || o.status === "rejected" || !o.gift_id) return false;
+        const oGId = String(o.gift_id).trim().toLowerCase();
+        return oGId === gId || oGId === gName;
+      });
       
       const activeOrder = 
         giftMatchingOrders.find(o => o.status === "approved") ||
@@ -412,12 +419,18 @@ app.get("/api/config", (req, res) => {
 });
 
 // Gifts & Gift Status
-app.get(["/api/gifts", "/rest/v1/gifts", "/rest/v1/gift_status"], (req, res) => {
+app.get(["/api/gifts", "/rest/v1/gifts", "/rest/v1/gift_status"], async (req, res) => {
+  try {
+    await syncFromSupabase();
+  } catch (e) {}
   res.json(getGiftStatusList());
 });
 
 // RSVPs
-app.get(["/api/rsvps", "/rest/v1/rsvps"], (req, res) => {
+app.get(["/api/rsvps", "/rest/v1/rsvps"], async (req, res) => {
+  try {
+    await syncFromSupabase();
+  } catch (e) {}
   const sorted = [...rsvps].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   res.json(sorted);
 });
@@ -445,9 +458,17 @@ app.post(["/api/rsvps", "/rest/v1/rsvps"], (req, res) => {
 });
 
 // Gift Orders
-app.get(["/api/orders", "/rest/v1/gift_orders"], (req, res) => {
+app.get(["/api/orders", "/rest/v1/gift_orders"], async (req, res) => {
+  try {
+    await syncFromSupabase();
+  } catch (e) {}
   const list = giftOrders.map(o => {
-    const gift = gifts.find(g => g.id === o.gift_id);
+    const oGId = String(o.gift_id || '').trim().toLowerCase();
+    const gift = gifts.find(g => {
+      const gId = String(g.id || '').trim().toLowerCase();
+      const gName = String(g.name || '').trim().toLowerCase();
+      return gId === oGId || gName === oGId;
+    });
     return {
       ...o,
       gift_name: gift ? gift.name : o.gift_id,
