@@ -1,6 +1,146 @@
 {
   "gifts": [
     {
+      "id": "ventilador-torre-arno",
+      "name": "Ventilador Torre Arno",
+      "description": "Modelo Eole Infinite",
+      "price_cents": 30000,
+      "unique_item": true,
+      "active": true,
+      "sort_order": 0,
+      "created_at": "2026-09-03T23:52:13.107087+00:00"
+    },
+    {
+      "id": "mesa-de-escritorio-c-gaveteiro",
+      "name": "Mesa de Escritório c/ Gaveteiro",
+      "description": "Modelo Kappesberg",
+      "price_cents": 45000,
+      "unique_item": true,
+      "active": true,
+      "sort_order": 0,
+      "created_at": "2026-09-03T23:54:25.605423+00:00"
+    },
+    {
+      "id": "kit-manta-sofa-poltrona",
+      "name": "Kit Manta Sofá Poltrona",
+      "description": "Aconchego",
+      "price_cents": 12000,
+      "unique_item": true,
+      "active": true,
+      "sort_order": 0,
+      "created_at": "2026-09-03T23:55:14.058008+00:00"
+    },
+    {
+      "id": "portao-expansivo-p-pet",
+      "name": "Portão Expansivo p/ Pet",
+      "description": "115cm de extensão",
+      "price_cents": 13000,
+      "unique_item": true,
+      "active": true,
+      "sort_order": 0,
+      "created_at": "2026-09-03T23:56:48.985907+00:00"
+    },
+    {
+      "id": "estante-para-livros",
+      "name": "Estante para Livros",
+      "description": "5 prateleiras",
+      "price_cents": 28000,
+      "unique_item": true,
+      "active": true,
+      "sort_order": 0,
+      "created_at": "2026-09-03T23:58:49.672448+00:00"
+    },
+    {
+      "id": "kit-manta-de-trico-p-sofa",
+      "name": "Kit Manta de Tricô p/ Sofá",
+      "description": "Siena Verde oliva",
+      "price_cents": 14000,
+      "unique_item": true,
+      "active": true,
+      "sort_order": 0,
+      "created_at": "2026-09-03T23:59:46.604787+00:00"
+    },
+    {
+      "id": "kit-peseira-p-cama",
+      "name": "Kit Peseira p/ Cama",
+      "description": "Queen em Linho",
+      "price_cents": 16000,
+      "unique_item": true,
+      "active": true,
+      "sort_order": 0,
+      "created_at": "2026-09-04T00:00:28.617582+00:00"
+    },
+    {
+      "id": "kit-peseira-trico-cama",
+      "name": "Kit Peseira Tricô Cama",
+      "description": "Queen c/ Capas Almofadas",
+      "price_cents": 11500,
+      "unique_item": true,
+      "active": true,
+      "sort_order": 0,
+      "created_at": "2026-09-04T00:01:48.274517+00:00"
+    },
+    {
+      "id": "kit-4-potes-acrilico",
+      "name": "Kit 4 Potes Acrílico",
+      "description": "Organizador 3,8l",
+      "price_cents": 8000,
+      "unique_item": false,
+      "active": true,
+      "sort_order": 0,
+      "created_at": "2026-09-04T00:02:42.678562+00:00"
+    },
+    {
+      "id": "tabua-de-passar-roupa",
+      "name": "Tábua de Passar Roupa",
+      "description": "Mesa Passadeira Extra Forte",
+      "price_cents": 18000,
+      "unique_item": true,
+      "active": true,
+      "sort_order": 0,
+      "created_at": "2026-09-04T00:05:43.023319+00:00"
+    },
+    {
+      "id": "kit-organizador-de-legumes",
+      "name": "Kit Organizador de Legumes",
+      "description": "",
+      "price_cents": 5500,
+      "unique_item": true,
+      "active": true,
+      "sort_order": 0,
+      "created_at": "2026-09-04T00:22:43.910081+00:00"
+    },
+    {
+      "id": "kit-6-potes-acrilico",
+      "name": "Kit 6 Potes Acrílico",
+      "description": "Para Geladeira",
+      "price_cents": 7600,
+      "unique_item": true,
+      "active": true,
+      "sort_order": 0,
+      "created_at": "2026-09-04T00:23:37.600027+00:00"
+    },
+    {
+      "id": "tapete-sala",
+      "name": "Tapete Sala",
+      "description": "Bolo Rústico",
+      "price_cents": 47000,
+      "unique_item": true,
+      "active": true,
+      "sort_order": 1,
+      "created_at": "2026-09-03T23:57:42.087305+00:00"
+    },
+    {
+      "id": "cotas-lua-de-mel",
+      "name": "Cotas LUA DE MEL",
+      "description": "Nos ajude a aproveitar um pouco?",
+      "price_cents": 50000,
+      "unique_item": false,
+      "active": true,
+      "sort_order": 1,
+      "created_at": "2026-09-04T00:03:48.631505+00:00"
+    },
+    {
       "id": "panelas",
       "name": "Jogo de panelas",
       "description": "Um conjunto bom, dos que duram anos.",
@@ -99,6 +239,16 @@
       "active": true,
       "sort_order": 10,
       "created_at": "2026-09-01T22:23:23.236621+00:00"
+    },
+    {
+      "id": "kit-6-potes-de-vidro",
+      "name": "Kit 6 Potes de Vidro",
+      "description": "Porta Temperos",
+      "price_cents": 4800,
+      "unique_item": true,
+      "active": true,
+      "sort_order": 15,
+      "created_at": "2026-09-04T00:33:39.190218+00:00"
     }
   ],
   "giftOrders": [

@@ -18,9 +18,13 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
   const [step, setStep] = useState<'form' | 'pix' | 'success'>('form');
   const [buyerName, setBuyerName] = useState('');
   const [buyerMessage, setBuyerMessage] = useState('');
-  const [customAmount, setCustomAmount] = useState<number>(
-    gift.unique_item ? gift.price_cents / 100 : Math.max(100, (gift.price_cents || 10000) / 100)
-  );
+
+  // Garante que o valor inicial reflita exatamente o preço do item (ex: R$ 10,00 -> 10, e não 100)
+  const initialCustomAmount = gift.unique_item
+    ? Math.max(1, Math.round((gift.price_cents || 1000) / 100))
+    : Math.max(10, Math.round((gift.price_cents || 1000) / 100));
+
+  const [customAmount, setCustomAmount] = useState<number>(initialCustomAmount);
   const [paymentMethod, setPaymentMethod] = useState<'pix_direct' | 'card'>('pix_direct');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -31,11 +35,24 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
   const [pendingOrderId, setPendingOrderId] = useState('');
   const [copiedPix, setCopiedPix] = useState(false);
 
-  const presetAmounts = [50, 100, 200, 350, 500];
+  // Valores pré-definidos incluindo opções a partir de R$ 10
+  const suggestedGiftVal = Math.round((gift.price_cents || 1000) / 100);
+  const presetAmounts = Array.from(
+    new Set([10, 25, 50, 100, 200, suggestedGiftVal].filter(v => v >= 10))
+  ).sort((a, b) => a - b);
 
   const finalAmountCents = gift.unique_item
     ? gift.price_cents
     : Math.round(Number(customAmount) * 100);
+
+  const isNameFilled = Boolean(buyerName && buyerName.trim().length >= 2);
+
+  // Garante que o QR code ou redirecionamento jamais ocorram sem o nome do convidado
+  useEffect(() => {
+    if (step === 'pix' && !isNameFilled) {
+      setStep('form');
+    }
+  }, [step, isNameFilled]);
 
   const fireConfetti = () => {
     confetti({
@@ -48,8 +65,10 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
 
   const handleStartPayment = async () => {
     setErrorMessage('');
-    if (!buyerName.trim()) {
-      setErrorMessage('Por favor, informe seu nome completo para identificação do presente.');
+    if (!isNameFilled) {
+      setErrorMessage('Por favor, informe seu nome completo antes de prosseguir. O nome é obrigatório para registrar seu presente.');
+      const input = document.getElementById('buyerNameInput');
+      if (input) input.focus();
       return;
     }
 
@@ -248,16 +267,35 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
 
             {/* Buyer name */}
             <div className="mb-4">
-              <label className="block text-xs font-semibold text-[#7A6A57] uppercase tracking-wider mb-1.5">
-                Seu nome completo *
+              <label htmlFor="buyerNameInput" className="block text-xs font-semibold text-[#7A6A57] uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                <span>Seu nome completo *</span>
+                {!isNameFilled && (
+                  <span className="text-[11px] text-[#A25A32] font-medium lowercase">obrigatório para liberar</span>
+                )}
               </label>
               <input
+                id="buyerNameInput"
                 type="text"
+                required
                 value={buyerName}
-                onChange={e => setBuyerName(e.target.value)}
+                onChange={e => {
+                  setBuyerName(e.target.value);
+                  if (errorMessage && e.target.value.trim().length >= 2) {
+                    setErrorMessage('');
+                  }
+                }}
                 placeholder="Como você deseja ser identificado no presente"
-                className="w-full px-3.5 py-2.5 bg-[#fff] border border-[#3A2E22]/15 rounded-md text-sm text-[#3A2E22] focus:outline-none focus:border-[#C67C4E]"
+                className={`w-full px-3.5 py-2.5 bg-[#fff] border rounded-md text-sm text-[#3A2E22] focus:outline-none transition-colors ${
+                  !isNameFilled
+                    ? 'border-[#C67C4E]/40 focus:border-[#C67C4E]'
+                    : 'border-[#3A2E22]/15 focus:border-[#C67C4E]'
+                }`}
               />
+              {!isNameFilled && (
+                <p className="text-[11px] text-[#7A6A57] mt-1">
+                  Digite seu nome para liberar a geração do QR Code Pix ou o pagamento parcelado.
+                </p>
+              )}
             </div>
 
             {/* Buyer message */}
@@ -319,7 +357,7 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
               <div className="bg-[#EFE3D0]/60 border border-[#3A2E22]/10 rounded-md p-3.5 mb-6 text-xs text-[#7A6A57] flex items-start gap-2.5">
                 <ShieldCheck className="w-4 h-4 text-[#5C6748] shrink-0 mt-0.5" />
                 <span>
-                  Você será redirecionado para o checkout oficial seguro do <strong>Mercado Pago</strong> com opção de <strong>parcelamento em até 12x no cartão de crédito</strong>.
+                  Você será redirecionado para o checkout seguro com opção de <strong>parcelamento no cartão de crédito</strong>.
                 </span>
               </div>
             )}
@@ -333,15 +371,22 @@ export const GiftCheckoutModal: React.FC<GiftCheckoutModalProps> = ({ gift, onCl
 
             {/* Submit Button */}
             <button
+              id="submitPaymentBtn"
               onClick={handleStartPayment}
-              disabled={loading}
-              className="w-full py-3.5 px-6 rounded-md bg-[#C67C4E] hover:bg-[#A25A32] text-[#FCF9F3] font-semibold text-sm transition-all shadow-sm flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+              disabled={loading || !isNameFilled}
+              className={`w-full py-3.5 px-6 rounded-md font-semibold text-sm transition-all shadow-sm flex items-center justify-center gap-2 ${
+                !isNameFilled
+                  ? 'bg-[#A25A32]/40 text-white/80 cursor-not-allowed'
+                  : 'bg-[#C67C4E] hover:bg-[#A25A32] text-[#FCF9F3] cursor-pointer'
+              } disabled:opacity-60`}
             >
               {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
                   <span>Conectando ao checkout seguro...</span>
                 </>
+              ) : !isNameFilled ? (
+                <span>Informe seu nome completo para continuar</span>
               ) : paymentMethod === 'pix_direct' ? (
                 <>
                   <QrCode className="w-4 h-4" />

@@ -3,10 +3,10 @@ import { Menu, X, Heart, Shield } from 'lucide-react';
 
 interface NavbarProps {
   onOpenAdmin: () => void;
-  onOpenCheckup: () => void;
+  onOpenCheckup?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ onOpenAdmin, onOpenCheckup }) => {
+export const Navbar: React.FC<NavbarProps> = ({ onOpenAdmin }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const navLinks = [
@@ -38,24 +38,10 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenAdmin, onOpenCheckup }) =>
               {link.label}
             </a>
           ))}
-          <button
-            onClick={onOpenCheckup}
-            className="text-xs px-2.5 py-1 rounded border border-[#7C8862]/40 text-[#5C6748] hover:bg-[#7C8862]/10 transition-colors flex items-center gap-1"
-            title="Diagnóstico e status das integrações"
-          >
-            <span>Check-up</span>
-          </button>
         </div>
 
         {/* Mobile Toggle */}
         <div className="flex md:hidden items-center gap-2">
-          <button
-            onClick={onOpenCheckup}
-            className="p-1.5 text-xs rounded border border-[#7C8862]/40 text-[#5C6748]"
-            title="Check-up do Sistema"
-          >
-            Check
-          </button>
           <button
             onClick={() => setMobileOpen(!mobileOpen)}
             className="p-1.5 text-[#3A2E22] hover:text-[#A25A32] transition-colors"

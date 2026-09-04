@@ -27,6 +27,23 @@ export const GiftRegistrySection: React.FC<GiftRegistrySectionProps> = ({ gifts,
     { id: 'Lua de Mel', label: 'Cotas Lua de Mel' },
   ];
 
+  const getGiftPurchaseWeight = (gift: Gift): number => {
+    // 0: Comprado / Aprovado (aparece primeiro para incentivar novos presentes)
+    // 1: Aguardando confirmação
+    // 2: Disponível / Ainda não comprado
+    const isApproved =
+      gift.order_status === 'approved' ||
+      orders.some(o => doesOrderMatchGift(o, gift) && o.status === 'approved');
+    if (isApproved) return 0;
+
+    const isAwaiting =
+      gift.order_status === 'awaiting_confirmation' ||
+      orders.some(o => doesOrderMatchGift(o, gift) && (o.status === 'awaiting_confirmation' || o.status === 'pending'));
+    if (isAwaiting) return 1;
+
+    return 2;
+  };
+
   const filteredGifts = gifts
     .filter(g => g.active !== false)
     .filter(g => {
@@ -41,7 +58,14 @@ export const GiftRegistrySection: React.FC<GiftRegistrySectionProps> = ({ gifts,
         (g.description && g.description.toLowerCase().includes(term))
       );
     })
-    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    .sort((a, b) => {
+      const weightA = getGiftPurchaseWeight(a);
+      const weightB = getGiftPurchaseWeight(b);
+      if (weightA !== weightB) {
+        return weightA - weightB;
+      }
+      return (a.sort_order || 0) - (b.sort_order || 0);
+    });
 
   // Helper para buscar todos os contribuintes de um presente
   const getGiftContributors = (gift: Gift): GiftContributor[] => {
@@ -89,7 +113,7 @@ export const GiftRegistrySection: React.FC<GiftRegistrySectionProps> = ({ gifts,
           </h2>
           <p className="mt-3 text-[#7A6A57] text-base max-w-2xl leading-relaxed">
             Sua presença já é o presente mais importante. Se quiser nos ajudar a montar a nossa casa, escolha um item
-            abaixo e pague direto por aqui — <strong>Pix instantâneo</strong> ou <strong>cartão de crédito parcelado</strong> via Stripe.
+            abaixo e pague direto por aqui — <strong>Pix instantâneo</strong> ou <strong>cartão de crédito parcelado</strong> via MercadoPago.
           </p>
         </div>
 

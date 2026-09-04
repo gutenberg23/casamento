@@ -711,13 +711,18 @@ app.post("/api/confirm-pix-order", (req, res) => {
   }
 
   let order = giftOrders.find(o => o.id === order_id);
+  const matchedGift = gifts.find(g => g.id === gift_id || g.name === gift_id);
+  const resolvedAmount = (amount_cents !== undefined && !isNaN(Number(amount_cents)) && Number(amount_cents) > 0)
+    ? Number(amount_cents)
+    : (matchedGift ? matchedGift.price_cents : 1000);
+
   if (!order) {
     order = {
       id: order_id,
-      gift_id: gift_id || "presente",
+      gift_id: matchedGift ? matchedGift.id : (gift_id || "presente"),
       buyer_name: buyer_name ? String(buyer_name).trim() : "Convidado",
       buyer_message: buyer_message ? String(buyer_message).trim() : null,
-      amount_cents: Number(amount_cents) || 10000,
+      amount_cents: resolvedAmount,
       payment_method: "pix_direct",
       status: "awaiting_confirmation",
       stripe_session_id: null,
@@ -728,6 +733,12 @@ app.post("/api/confirm-pix-order", (req, res) => {
   } else {
     order.status = "awaiting_confirmation";
     order.updated_at = new Date().toISOString();
+    if (amount_cents && Number(amount_cents) > 0) {
+      order.amount_cents = Number(amount_cents);
+    } else if (matchedGift && (!order.amount_cents || order.amount_cents === 10000)) {
+      // Ajusta caso estivesse com fallback incorreto de 10000
+      order.amount_cents = matchedGift.price_cents;
+    }
     if (buyer_name) order.buyer_name = String(buyer_name).trim();
     if (buyer_message) order.buyer_message = String(buyer_message).trim();
   }
@@ -755,7 +766,7 @@ app.post("/api/confirm-card-order", async (req, res) => {
       gift_id: matchedGift ? matchedGift.id : (gift_name || "presente"),
       buyer_name: "Convidado",
       buyer_message: null,
-      amount_cents: matchedGift ? matchedGift.price_cents : 10000,
+      amount_cents: matchedGift ? matchedGift.price_cents : 1000,
       payment_method: session_id ? "stripe" : "card",
       status: "approved",
       stripe_session_id: session_id || null,
@@ -779,18 +790,21 @@ app.post("/api/confirm-card-order", async (req, res) => {
   return res.json({ success: true, order });
 });
 
-// Admin Orders Management (Alterar status de pedidos)
+// Admin Orders Management (Alterar status ou valor de pedidos)
 app.all(["/api/admin-orders", "/functions/v1/admin-orders"], (req, res) => {
   const code = req.body?.code || req.query?.code || req.headers["x-admin-code"];
   if (!checkAdminCode(code)) {
     return res.status(401).json({ error: "Código incorreto." });
   }
 
-  const { order_id, status } = req.body;
-  if (order_id && status) {
+  const { order_id, status, amount_cents } = req.body;
+  if (order_id) {
     const order = giftOrders.find(o => o.id === order_id);
     if (order) {
-      order.status = status;
+      if (status) order.status = status;
+      if (amount_cents !== undefined && !isNaN(Number(amount_cents)) && Number(amount_cents) > 0) {
+        order.amount_cents = Number(amount_cents);
+      }
       order.updated_at = new Date().toISOString();
       saveStore();
       pushOrderToSupabase(order);
@@ -901,7 +915,7 @@ app.all(["/api/admin-gifts", "/functions/v1/admin-gifts"], async (req, res) => {
         id,
         name: String(gift.name).trim(),
         description: gift.description ? String(gift.description).trim() : "",
-        price_cents: Number(gift.price_cents) || 10000,
+        price_cents: Number(gift.price_cents) > 0 ? Number(gift.price_cents) : 1000,
         category: gift.category ? String(gift.category) : "Casa",
         unique_item: gift.unique_item !== false,
         active: gift.active !== false,

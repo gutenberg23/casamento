@@ -195,14 +195,14 @@ export async function handler(event, context) {
       gift = {
         id: gift_id,
         name: "Presente de Casamento",
-        price_cents: amount_cents || 10000,
+        price_cents: (amount_cents && Number(amount_cents) > 0) ? Number(amount_cents) : 1000,
         description: ""
       };
     }
 
     const finalAmount = gift.unique_item
       ? Number(gift.price_cents)
-      : (amount_cents && Number(amount_cents) >= 1000 ? Number(amount_cents) : Number(gift.price_cents));
+      : (amount_cents && Number(amount_cents) > 0 ? Number(amount_cents) : Number(gift.price_cents));
 
     const orderId = `order_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const origin = event.headers.origin || event.headers.referer || "https://iasminegutenberg.com.br";

@@ -93,7 +93,7 @@ export const DetailsSection: React.FC = () => {
               <p className="text-sm text-[#7A6A57]">Chegue no seu tempo, a celebração começa aí.</p>
             </div>
             <div className="mt-6 pt-4 border-t border-[#3A2E22]/10">
-              <span className="text-xs text-[#7A6A57]">Traje: Esporte Fino / Confortável</span>
+              <span className="text-xs text-[#7A6A57]">Até as 22h!</span>
             </div>
           </div>
 

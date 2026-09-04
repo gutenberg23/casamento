@@ -31,10 +31,15 @@ export async function handler(event) {
   const SUPABASE_URL = process.env.SUPABASE_URL || "https://sxivkbppdhzpelzfppud.supabase.co";
   const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 
-  const { order_id, status } = body;
+  const { order_id, status, amount_cents } = body;
 
-  if (order_id && status && SUPABASE_URL && SUPABASE_KEY) {
+  if (order_id && SUPABASE_URL && SUPABASE_KEY) {
     try {
+      const updateData = { updated_at: new Date().toISOString() };
+      if (status) updateData.status = status;
+      if (amount_cents !== undefined && !isNaN(Number(amount_cents)) && Number(amount_cents) > 0) {
+        updateData.amount_cents = Number(amount_cents);
+      }
       await fetch(`${SUPABASE_URL}/rest/v1/gift_orders?id=eq.${encodeURIComponent(order_id)}`, {
         method: "PATCH",
         headers: {
@@ -42,7 +47,7 @@ export async function handler(event) {
           Authorization: `Bearer ${SUPABASE_KEY}`,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ status, updated_at: new Date().toISOString() })
+        body: JSON.stringify(updateData)
       });
     } catch (e) {}
   }

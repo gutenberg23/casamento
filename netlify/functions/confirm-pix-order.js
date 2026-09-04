@@ -25,7 +25,7 @@ export async function handler(event) {
       gift_id: gift_id || "presente",
       buyer_name: buyer_name ? String(buyer_name).trim() : "Convidado",
       buyer_message: buyer_message ? String(buyer_message).trim() : null,
-      amount_cents: Number(amount_cents) || 10000,
+      amount_cents: (amount_cents !== undefined && !isNaN(Number(amount_cents)) && Number(amount_cents) > 0) ? Number(amount_cents) : 1000,
       payment_method: "pix_direct",
       status: "awaiting_confirmation",
       stripe_session_id: null,

@@ -374,13 +374,16 @@ export async function checkStripeStatus(): Promise<PaymentGatewayStatus> {
   return { configured: false };
 }
 
-export async function adminUpdateOrderStatus(
+export async function adminUpdateOrder(
   code: string,
   orderId: string,
-  status: 'approved' | 'rejected' | 'pending' | 'awaiting_confirmation'
+  updates: {
+    status?: 'approved' | 'rejected' | 'pending' | 'awaiting_confirmation';
+    amount_cents?: number;
+  }
 ): Promise<GiftOrder[]> {
   const cleanCode = code.trim();
-  console.log('[Admin] Atualizando status do pedido:', { orderId, status });
+  console.log('[Admin] Atualizando pedido:', { orderId, updates });
   let updatedOrders: GiftOrder[] = [];
 
   const routes = ['/api/admin-orders', '/.netlify/functions/admin-orders'];
@@ -392,7 +395,12 @@ export async function adminUpdateOrderStatus(
           'Content-Type': 'application/json',
           'x-admin-code': cleanCode
         },
-        body: JSON.stringify({ code: cleanCode, order_id: orderId, status })
+        body: JSON.stringify({
+          code: cleanCode,
+          order_id: orderId,
+          status: updates.status,
+          amount_cents: updates.amount_cents
+        })
       });
       if (res.ok) {
         const data = await res.json();
@@ -413,7 +421,10 @@ export async function adminUpdateOrderStatus(
     const orders = getLocalOrders();
     const idx = orders.findIndex(o => o.id === orderId);
     if (idx >= 0) {
-      orders[idx].status = status;
+      if (updates.status) orders[idx].status = updates.status;
+      if (updates.amount_cents !== undefined && updates.amount_cents > 0) {
+        orders[idx].amount_cents = updates.amount_cents;
+      }
       orders[idx].updated_at = new Date().toISOString();
       saveLocalOrders(orders);
     }
@@ -422,7 +433,7 @@ export async function adminUpdateOrderStatus(
 
   // Sincroniza o presente correspondente no cache local
   const targetOrder = updatedOrders.find(o => o.id === orderId);
-  if (targetOrder) {
+  if (targetOrder && updates.status) {
     const gifts = getLocalGifts();
     const gIdx = gifts.findIndex(g => {
       const gId = String(g.id || '').trim().toLowerCase();
@@ -431,16 +442,16 @@ export async function adminUpdateOrderStatus(
       return gId === oGId || gName === oGId;
     });
     if (gIdx >= 0 && gifts[gIdx].unique_item) {
-      if (status === 'rejected') {
+      if (updates.status === 'rejected') {
         // Se foi rejeitado/cancelado, libera o presente para novos compradores
         gifts[gIdx].order_status = null;
         gifts[gIdx].buyer_name = null;
         gifts[gIdx].order_id = null;
-      } else if (status === 'approved') {
+      } else if (updates.status === 'approved') {
         gifts[gIdx].order_status = 'approved';
         gifts[gIdx].buyer_name = targetOrder.buyer_name;
         gifts[gIdx].order_id = targetOrder.id;
-      } else if (status === 'awaiting_confirmation' || status === 'pending') {
+      } else if (updates.status === 'awaiting_confirmation' || updates.status === 'pending') {
         gifts[gIdx].order_status = 'awaiting_confirmation';
         gifts[gIdx].buyer_name = targetOrder.buyer_name;
         gifts[gIdx].order_id = targetOrder.id;
@@ -450,6 +461,14 @@ export async function adminUpdateOrderStatus(
   }
 
   return updatedOrders;
+}
+
+export async function adminUpdateOrderStatus(
+  code: string,
+  orderId: string,
+  status: 'approved' | 'rejected' | 'pending' | 'awaiting_confirmation'
+): Promise<GiftOrder[]> {
+  return adminUpdateOrder(code, orderId, { status });
 }
 
 export async function adminGiftsAction(
@@ -534,7 +553,7 @@ export async function adminGiftsAction(
         id: slugId,
         name: itemToCreate.name || 'Novo Presente',
         description: itemToCreate.description || '',
-        price_cents: Number(itemToCreate.price_cents) || 10000,
+        price_cents: Number(itemToCreate.price_cents) > 0 ? Number(itemToCreate.price_cents) : 1000,
         unique_item: itemToCreate.unique_item !== false,
         active: itemToCreate.active !== false,
         sort_order: Number(itemToCreate.sort_order) || (gifts.length + 1),

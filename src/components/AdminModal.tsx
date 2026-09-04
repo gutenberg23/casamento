@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Gift, GiftOrder, Rsvp } from '../types';
 import { formatBRL, formatDateBR, exportToCSV, cleanPhoneBR } from '../utils/formatters';
-import { adminGiftsAction, checkStripeStatus, adminUpdateOrderStatus, fetchOrders } from '../services/api';
-import { X, Lock, Gift as GiftIcon, Users, ShoppingBag, Settings, Plus, Edit2, Trash2, Download, Check, AlertCircle, Phone, MessageSquare, ExternalLink, Clock, EyeOff, RefreshCw } from 'lucide-react';
+import { adminGiftsAction, checkStripeStatus, adminUpdateOrderStatus, adminUpdateOrder, fetchOrders } from '../services/api';
+import { X, Lock, Gift as GiftIcon, Users, ShoppingBag, Settings, Plus, Edit2, Trash2, Download, Check, AlertCircle, Phone, MessageSquare, ExternalLink, Clock, EyeOff, RefreshCw, Edit3 } from 'lucide-react';
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -243,6 +243,30 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     }
   };
 
+  const handleUpdateOrderAmount = async (orderId: string, currentAmountCents: number) => {
+    const currentReais = (currentAmountCents / 100).toFixed(2).replace('.', ',');
+    const input = prompt(`Ajustar valor do pedido (em R$):\nExemplo: Digite 10 para R$ 10,00`, currentReais);
+    if (input === null) return;
+    const sanitized = parseFloat(input.replace(',', '.'));
+    if (isNaN(sanitized) || sanitized <= 0) {
+      alert('Por favor, informe um valor numérico válido.');
+      return;
+    }
+    const newAmountCents = Math.round(sanitized * 100);
+    setLoadingAction(true);
+    setAdminOrders(prev => prev.map(o => o.id === orderId ? { ...o, amount_cents: newAmountCents } : o));
+    try {
+      await adminUpdateOrder(adminCodeInput, orderId, { amount_cents: newAmountCents });
+      await refreshOrdersList();
+      await onRefreshData();
+    } catch (e: any) {
+      alert(e.message || 'Erro ao alterar valor do pedido.');
+      await refreshOrdersList();
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
   // CSV Exports
   const handleExportRsvps = () => {
     const data = rsvps.map(r => ({
@@ -325,7 +349,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             /* Login Form */
             <form onSubmit={handleLogin} className="max-w-sm mx-auto py-6">
               <p className="text-sm text-[#7A6A57] mb-4 text-center">
-                Digite a senha de administrador (padrão: <code>casamento2026</code>)
+                Digite a senha de administrador
               </p>
               <div className="mb-4">
                 <input
@@ -840,9 +864,20 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                                 <h5 className="text-sm font-semibold text-[#3A2E22]">
                                   {giftObj ? giftObj.name : o.gift_id}
                                 </h5>
-                                <span className="font-bold text-[#A25A32] font-serif-display text-base">
-                                  {formatBRL(o.amount_cents)}
-                                </span>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <span className="font-bold text-[#A25A32] font-serif-display text-base">
+                                    {formatBRL(o.amount_cents)}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateOrderAmount(o.id, o.amount_cents)}
+                                    title="Ajustar valor registrado deste presente"
+                                    className="inline-flex items-center gap-1 text-[11px] text-[#7A6A57] hover:text-[#C67C4E] px-2 py-0.5 rounded border border-[#3A2E22]/15 hover:border-[#C67C4E] bg-white transition-colors cursor-pointer"
+                                  >
+                                    <Edit3 className="w-3 h-3 text-[#C67C4E]" />
+                                    <span>Ajustar valor</span>
+                                  </button>
+                                </div>
                               </div>
                               <div className="flex items-center gap-2">
                                 <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 bg-[#FCF9F3] border border-[#3A2E22]/15 rounded text-[#7A6A57]">
