@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Gift } from '../types';
 import { formatBRL } from '../utils/formatters';
 import { generatePixPayload, getPixQrCodeUrl, DEFAULT_PIX_KEY, DEFAULT_PIX_RECEIVER, DEFAULT_PIX_CITY } from '../utils/pix';

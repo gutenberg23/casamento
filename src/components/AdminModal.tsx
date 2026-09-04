@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Gift, GiftOrder, Rsvp } from '../types';
 import { formatBRL, formatDateBR, exportToCSV, cleanPhoneBR } from '../utils/formatters';
-import { adminGiftsAction, checkStripeStatus, adminUpdateOrderStatus, adminUpdateOrder, fetchOrders } from '../services/api';
+import { adminGiftsAction, checkStripeStatus, adminUpdateOrderStatus, adminUpdateOrder, fetchOrders, PaymentGatewayStatus } from '../services/api';
 import { X, Lock, Gift as GiftIcon, Users, ShoppingBag, Settings, Plus, Edit2, Trash2, Download, Check, AlertCircle, Phone, MessageSquare, ExternalLink, Clock, EyeOff, RefreshCw, Edit3 } from 'lucide-react';
 
 interface AdminModalProps {
@@ -88,7 +88,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [orderFilter, setOrderFilter] = useState<'all' | 'awaiting_confirmation' | 'approved' | 'rejected'>('all');
 
   // Diagnostic state
-  const [stripeDiagnostic, setStripeDiagnostic] = useState<{ configured: boolean; prefix?: string } | null>(null);
+  const [stripeDiagnostic, setStripeDiagnostic] = useState<PaymentGatewayStatus | null>(null);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
